@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}GitHub Issues - Task Dashboard{% endblock %}
+{% block page_title %}GitHub Issues{% endblock %}
+
+{% block header_actions %}
+<div class="header-actions">
+    <select id="github-status" class="form-control" onchange="loadGithubIssues()">
+        <option value="open">Open Issues</option>
+        <option value="closed">Closed Issues</option>
+        <option value="all">All Issues</option>
+    </select>
+    <button class="btn btn-primary" onclick="loadGithubIssues()">
+        <i class="fas fa-sync"></i> Refresh
+    </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="github-issues"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/github.js') }}"></script>
+{% endblock %}

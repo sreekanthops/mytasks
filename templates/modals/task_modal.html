@@ -1,0 +1,94 @@
+<!-- Add/Edit Task Modal -->
+<div id="task-modal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+            <h2><i class="fas fa-tasks"></i> Add New Task</h2>
+            <button class="close-btn" onclick="closeModal('task-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="task-form">
+                <!-- GitHub Issue Link -->
+                <div class="form-section">
+                    <label for="task-github-issue" class="form-label">
+                        <i class="fab fa-github"></i> Link to GitHub Issue (Optional)
+                    </label>
+                    <select id="task-github-issue" class="form-control">
+                        <option value="">-- No GitHub Issue --</option>
+                    </select>
+                    <small class="form-hint">Select a GitHub issue to auto-fill details</small>
+                </div>
+                
+                <!-- Title -->
+                <div class="form-section">
+                    <label for="task-title" class="form-label">
+                        <i class="fas fa-heading"></i> Title <span class="required">*</span>
+                    </label>
+                    <input type="text" id="task-title" class="form-control" required placeholder="Enter task title">
+                </div>
+                
+                <!-- Description -->
+                <div class="form-section">
+                    <label for="task-description" class="form-label">
+                        <i class="fas fa-align-left"></i> Description
+                    </label>
+                    <textarea id="task-description" class="form-control" rows="4" placeholder="Add task description..."></textarea>
+                </div>
+                
+                <!-- Status and Priority -->
+                <div class="form-row">
+                    <div class="form-section">
+                        <label for="task-status" class="form-label">
+                            <i class="fas fa-flag"></i> Status
+                        </label>
+                        <select id="task-status" class="form-control">
+                            <option value="pending">📋 Pending</option>
+                            <option value="inprogress">⚡ In Progress</option>
+                            <option value="hold">⏸️ On Hold</option>
+                            <option value="done">✅ Done</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-section">
+                        <label for="task-priority" class="form-label">
+                            <i class="fas fa-exclamation-circle"></i> Priority
+                        </label>
+                        <select id="task-priority" class="form-control">
+                            <option value="low">🟢 Low</option>
+                            <option value="medium" selected>🟡 Medium</option>
+                            <option value="high">🟠 High</option>
+                            <option value="urgent">🔴 Urgent</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Deadline and Due Date -->
+                <div class="form-row">
+                    <div class="form-section">
+                        <label for="task-deadline" class="form-label">
+                            <i class="fas fa-clock"></i> Deadline <span class="required">*</span>
+                        </label>
+                        <input type="datetime-local" id="task-deadline" class="form-control" required>
+                        <small class="form-hint">You'll be reminded as deadline approaches</small>
+                    </div>
+                    
+                    <div class="form-section">
+                        <label for="task-due-date" class="form-label">
+                            <i class="fas fa-calendar"></i> Due Date
+                        </label>
+                        <input type="datetime-local" id="task-due-date" class="form-control">
+                        <small class="form-hint">Optional target completion date</small>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('task-modal')">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Add Task
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

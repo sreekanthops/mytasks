@@ -250,6 +250,7 @@ async function loadTasks() {
                                 ${task.priority ? `<span class="badge" style="background: ${priorityColors[task.priority]}20; color: ${priorityColors[task.priority]};">${priorityIcons[task.priority]} ${task.priority}</span>` : ''}
                                 ${task.deadline ? `<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444;"><i class="fas fa-clock"></i> ${new Date(task.deadline).toLocaleDateString()}</span>` : ''}
                                 ${task.due_date ? `<span class="badge" style="background: rgba(99, 102, 241, 0.1); color: #6366f1;"><i class="fas fa-calendar"></i> ${new Date(task.due_date).toLocaleDateString()}</span>` : ''}
+                                ${task.reminder_count > 0 ? `<span class="badge" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6;"><i class="fas fa-bell"></i> ${task.reminder_count} reminder${task.reminder_count > 1 ? 's' : ''}</span>` : ''}
                             </div>
                         </div>
                     </div>
@@ -260,14 +261,15 @@ async function loadTasks() {
                             ${task.is_muted ? '<span class="badge" style="background: rgba(100, 116, 139, 0.2); color: #64748b; margin-left: 8px;"><i class="fas fa-bell-slash"></i> Muted</span>' : ''}
                         </span>
                         <div class="flex gap-2">
-                            <button class="btn btn-sm" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; border: none;" onclick="openReminderModal(${task.id}, '${task.title.replace(/'/g, "\\'")}', ${task.deadline ? `'${task.deadline}'` : 'null'})" title="⏰ Set custom reminders">
-                                <i class="fas fa-bell"></i>
+                            <button class="btn btn-sm ${task.is_muted ? 'btn-secondary' : 'btn-warning'}" onclick="muteTask(${task.id})" title="${task.deadline ? (task.is_muted ? '🔔 Unmute deadline alerts' : '🔕 Mute deadline alerts') : '⚠️ Add a deadline to enable alerts'}" ${!task.deadline ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+                                <i class="fas fa-bell${task.is_muted ? '' : '-slash'}"></i>
                             </button>
-                            ${task.deadline ? `
-                                <button class="btn btn-sm ${task.is_muted ? 'btn-secondary' : 'btn-warning'}" onclick="muteTask(${task.id})" title="${task.is_muted ? '🔔 Unmute' : '🔕 Mute'}">
-                                    <i class="fas fa-bell${task.is_muted ? '' : '-slash'}"></i>
-                                </button>
-                            ` : ''}
+                            <button class="btn btn-sm btn-primary" onclick="editTask(${task.id})" title="✏️ Edit task">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; border: none;" onclick="openReminderModal(${task.id}, '${task.title.replace(/'/g, "\\'")}', ${task.deadline ? `'${task.deadline}'` : 'null'})" title="⏰ Manage custom reminders">
+                                <i class="fas fa-clock"></i>
+                            </button>
                             <select class="form-control" onchange="updateTaskStatus(${task.id}, this.value)" style="padding: 8px 12px; font-size: 13px; width: auto;">
                                 <option value="pending" ${task.status === 'pending' ? 'selected' : ''}>📋 Pending</option>
                                 <option value="inprogress" ${task.status === 'inprogress' ? 'selected' : ''}>⚡ In Progress</option>
@@ -312,6 +314,77 @@ async function deleteTask(taskId) {
         }
     } catch (error) {
         showNotification('Error deleting task', 'error');
+    }
+}
+
+async function editTask(taskId) {
+    try {
+        const response = await fetch(`/api/tasks/${taskId}`);
+        if (!response.ok) {
+            showNotification('Error loading task', 'error');
+            return;
+        }
+        const task = await response.json();
+        
+        // Populate the task form with existing data
+        document.getElementById('task-title').value = task.title;
+        document.getElementById('task-description').value = task.description || '';
+        document.getElementById('task-status').value = task.status;
+        document.getElementById('task-priority').value = task.priority || 'medium';
+        document.getElementById('task-deadline').value = task.deadline ? task.deadline.split('T')[0] : '';
+        document.getElementById('task-due-date').value = task.due_date ? task.due_date.split('T')[0] : '';
+        
+        // If task has GitHub issue, show it (read-only in edit mode)
+        if (task.github_issue_number) {
+            const githubSelect = document.getElementById('task-github-issue');
+            githubSelect.innerHTML = `<option value="" selected>#${task.github_issue_number} - ${task.github_issue_title} (linked)</option>`;
+            githubSelect.disabled = true;
+        }
+        
+        // Change modal title
+        document.querySelector('#task-modal .modal-header h2').textContent = 'Edit Task';
+        
+        // Change form submit handler to update instead of create
+        const form = document.getElementById('task-form');
+        const originalHandler = form.onsubmit;
+        
+        form.onsubmit = async function(e) {
+            e.preventDefault();
+            const updateData = {
+                title: document.getElementById('task-title').value,
+                description: document.getElementById('task-description').value,
+                status: document.getElementById('task-status').value,
+                priority: document.getElementById('task-priority').value,
+                deadline: document.getElementById('task-deadline').value || null,
+                due_date: document.getElementById('task-due-date').value || null
+            };
+            
+            try {
+                const updateResponse = await fetch(`/api/tasks/${taskId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updateData)
+                });
+                
+                if (updateResponse.ok) {
+                    showNotification('Task updated successfully!', 'success');
+                    closeModal('task-modal');
+                    form.reset();
+                    // Reset form back to create mode
+                    document.querySelector('#task-modal .modal-header h2').textContent = 'Create New Task';
+                    const githubSelect = document.getElementById('task-github-issue');
+                    githubSelect.disabled = false;
+                    setupFormHandlers();
+                    loadTasks();
+                }
+            } catch (error) {
+                showNotification('Error updating task', 'error');
+            }
+        };
+        
+        openModal('task-modal');
+    } catch (error) {
+        showNotification('Error loading task', 'error');
     }
 }
 
@@ -502,7 +575,9 @@ function setupFormHandlers() {
         }
     });
     
-    document.getElementById('settings-form').addEventListener('submit', async function(e) {
+    const settingsForm = document.getElementById('settings-form');
+    if (settingsForm) {
+        settingsForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         const data = {
             github_token: document.getElementById('github-token').value,
@@ -520,9 +595,12 @@ function setupFormHandlers() {
         } catch (error) {
             showNotification('Error saving settings', 'error');
         }
-    });
+        });
+    }
     
-    document.getElementById('env-form').addEventListener('submit', async function(e) {
+    const envForm = document.getElementById('env-form');
+    if (envForm) {
+        envForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         const data = {
             name: document.getElementById('env-name').value,
@@ -542,7 +620,8 @@ function setupFormHandlers() {
         } catch (error) {
             showNotification('Error creating environment', 'error');
         }
-    });
+        });
+    }
 }
 
 function openModal(modalId) {

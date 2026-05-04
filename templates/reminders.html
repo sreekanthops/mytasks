@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Reminders - Task Dashboard{% endblock %}
+{% block page_title %}Reminders{% endblock %}
+{% block header_actions %}
+<button class="btn btn-primary" onclick="openModal('reminder-modal')">
+    <i class="fas fa-plus"></i> New Reminder
+</button>
+{% endblock %}
+{% block content %}
+<div id="reminders-list"></div>
+{% endblock %}
+{% block modals %}
+{% include 'modals/reminder_modal.html' %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/reminders.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Settings - Task Dashboard{% endblock %}
+{% block page_title %}Settings{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>GitHub Configuration</h3>
+    </div>
+    <div class="card-body">
+        <form id="settings-form">
+            <div class="form-group">
+                <label for="github-token">GitHub Personal Access Token</label>
+                <input type="password" id="github-token" class="form-control" placeholder="ghp_xxxxxxxxxxxx">
+                <small class="form-text">Required to fetch GitHub issues</small>
+            </div>
+            <div class="form-group">
+                <label for="github-username">GitHub Username</label>
+                <input type="text" id="github-username" class="form-control" placeholder="your-username">
+            </div>
+            <button type="submit" class="btn btn-primary">Save Settings</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+{% endblock %}

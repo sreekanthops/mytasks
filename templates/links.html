@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Dashboard Links - Task Dashboard{% endblock %}
+{% block page_title %}Dashboard Links{% endblock %}
+{% block header_actions %}
+<div class="header-actions" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+    <select id="env-filter" class="form-control" onchange="loadLinks()" style="min-width: 180px;">
+        <option value="">All Environments</option>
+    </select>
+    <button class="btn btn-secondary" onclick="showManageEnvModal()">
+        <i class="fas fa-cog"></i> Manage Environments
+    </button>
+    <button class="btn btn-primary" onclick="openModal('link-modal'); loadEnvironments();">
+        <i class="fas fa-plus"></i> New Link
+    </button>
+</div>
+{% endblock %}
+{% block content %}
+<div style="margin-bottom: 20px;">
+    <div style="position: relative; max-width: 500px;">
+        <i class="fas fa-search" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-secondary);"></i>
+        <input type="text" id="link-search" class="form-control" placeholder="Search links by name, URL, or description..."
+               style="padding-left: 40px;" oninput="searchLinks()">
+    </div>
+</div>
+<div id="links-list"></div>
+{% endblock %}
+{% block modals %}
+{% include 'modals/link_modal.html' %}
+{% include 'modals/env_modal.html' %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/links.js') }}"></script>
+{% endblock %}

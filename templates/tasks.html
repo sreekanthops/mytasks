@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}My Tasks - Task Dashboard{% endblock %}
+{% block page_title %}My Tasks{% endblock %}
+{% block header_actions %}
+<div class="header-actions">
+    <select id="task-filter" class="form-control" onchange="loadTasks()">
+        <option value="">All Tasks</option>
+        <option value="pending">Pending</option>
+        <option value="inprogress">In Progress</option>
+        <option value="hold">On Hold</option>
+        <option value="done">Done</option>
+        <option value="archive">Archive</option>
+    </select>
+    <button class="btn btn-primary" onclick="openModal('task-modal')">
+        <i class="fas fa-plus"></i> New Task
+    </button>
+</div>
+{% endblock %}
+{% block content %}
+<div id="tasks-list"></div>
+{% endblock %}
+{% block modals %}
+{% include 'modals/task_modal.html' %}
+{% include 'modals/task_reminder_modal.html' %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/tasks.js') }}"></script>
+{% endblock %}

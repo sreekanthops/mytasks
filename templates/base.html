@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Task Dashboard{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>📋 My Tasks</h1>
+                <p id="current-time"></p>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="/github" class="nav-item {% if active_page == 'github' %}active{% endif %}" data-section="github">
+                    <i class="fab fa-github"></i>
+                    <span>GitHub Issues</span>
+                </a>
+                <a href="/tasks" class="nav-item {% if active_page == 'tasks' %}active{% endif %}" data-section="tasks">
+                    <i class="fas fa-tasks"></i>
+                    <span>My Tasks</span>
+                </a>
+                <a href="/reminders" class="nav-item {% if active_page == 'reminders' %}active{% endif %}" data-section="reminders">
+                    <i class="fas fa-bell"></i>
+                    <span>Reminders</span>
+                    <span id="urgent-count-badge" class="urgent-badge" style="display: none;">0</span>
+                </a>
+                <a href="/links" class="nav-item {% if active_page == 'links' %}active{% endif %}" data-section="links">
+                    <i class="fas fa-link"></i>
+                    <span>Dashboard Links</span>
+                </a>
+                <a href="/settings" class="nav-item {% if active_page == 'settings' %}active{% endif %}" data-section="settings">
+                    <i class="fas fa-cog"></i>
+                    <span>Settings</span>
+                </a>
+                <a href="javascript:void(0)" class="nav-item voice-assistant-btn" id="voice-btn">
+                    <i class="fas fa-microphone-slash"></i>
+                    <span>Voice Assistant</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="content-header">
+                <h2 id="section-title">{% block page_title %}Dashboard{% endblock %}</h2>
+                {% block header_actions %}{% endblock %}
+            </header>
+
+            <div class="content-body">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    {% block modals %}{% endblock %}
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/common.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/voice-assistant.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

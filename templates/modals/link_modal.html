@@ -1,0 +1,58 @@
+<!-- Add Link Modal -->
+<div id="link-modal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2><i class="fas fa-link"></i> Add New Link</h2>
+            <button class="close-btn" onclick="closeModal('link-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="link-form">
+                <!-- Name -->
+                <div class="form-section">
+                    <label for="link-name" class="form-label">
+                        <i class="fas fa-tag"></i> Name <span class="required">*</span>
+                    </label>
+                    <input type="text" id="link-name" class="form-control" required placeholder="e.g., Grafana Dashboard">
+                </div>
+                
+                <!-- URL -->
+                <div class="form-section">
+                    <label for="link-url" class="form-label">
+                        <i class="fas fa-globe"></i> URL <span class="required">*</span>
+                    </label>
+                    <input type="url" id="link-url" class="form-control" required placeholder="https://example.com">
+                    <small class="form-hint">Full URL including https://</small>
+                </div>
+                
+                <!-- Description -->
+                <div class="form-section">
+                    <label for="link-description" class="form-label">
+                        <i class="fas fa-align-left"></i> Description
+                    </label>
+                    <textarea id="link-description" class="form-control" rows="3" placeholder="What is this link used for?"></textarea>
+                    <small class="form-hint">Brief description of the dashboard or tool</small>
+                </div>
+                
+                <!-- Environment -->
+                <div class="form-section">
+                    <label class="form-label">
+                        <i class="fas fa-server"></i> Environment
+                    </label>
+                    <div id="link-environment-checkboxes" style="display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--hover-bg); border-radius: 8px; max-height: 200px; overflow-y: auto;">
+                        <!-- Checkboxes will be populated here -->
+                    </div>
+                    <small class="form-hint">Select environment(s) for this link</small>
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('link-modal')">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Add Link
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
