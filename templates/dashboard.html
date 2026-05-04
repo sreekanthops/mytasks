@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Tasks Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2><i class="fas fa-tasks"></i> My Tasks</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-section="github">
+                    <i class="fab fa-github"></i> GitHub Issues
+                </a>
+                <a href="#" class="nav-item" data-section="tasks">
+                    <i class="fas fa-list-check"></i> My Tasks
+                </a>
+                <a href="#" class="nav-item" data-section="reminders">
+                    <i class="fas fa-bell"></i> Reminders
+                </a>
+                <a href="#" class="nav-item" data-section="links">
+                    <i class="fas fa-link"></i> Dashboard Links
+                </a>
+                <a href="#" class="nav-item" data-section="settings">
+                    <i class="fas fa-cog"></i> Settings
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <h1 id="section-title">GitHub Issues</h1>
+                <div class="user-info">
+                    <span id="current-time"></span>
+                </div>
+            </header>
+
+            <!-- GitHub Issues Section -->
+            <section id="github-section" class="content-section active">
+                <div class="section-controls">
+                    <select id="github-status" class="control-select">
+                        <option value="open">Open Issues</option>
+                        <option value="closed">Closed Issues</option>
+                        <option value="all">All Issues</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="loadGithubIssues()">
+                        <i class="fas fa-sync"></i> Refresh
+                    </button>
+                </div>
+                <div id="github-issues" class="cards-container"></div>
+            </section>
+
+            <!-- Tasks Section -->
+            <section id="tasks-section" class="content-section">
+                <div class="section-controls">
+                    <button class="btn btn-primary" onclick="showAddTaskModal()">
+                        <i class="fas fa-plus"></i> Add Task
+                    </button>
+                    <button class="btn btn-secondary" onclick="showImportGithubModal()" style="background: #6366f1;">
+                        <i class="fab fa-github"></i> Import from GitHub
+                    </button>
+                    <select id="task-filter" class="control-select" onchange="loadTasks()">
+                        <option value="">All Tasks</option>
+                        <option value="pending">Pending</option>
+                        <option value="inprogress">In Progress</option>
+                        <option value="hold">On Hold</option>
+                        <option value="done">Done</option>
+                        <option value="archive">Archived</option>
+                    </select>
+                </div>
+                <div id="tasks-list" class="cards-container"></div>
+            </section>
+
+            <!-- Reminders Section -->
+            <section id="reminders-section" class="content-section">
+                <div class="section-controls">
+                    <button class="btn btn-primary" onclick="showAddReminderModal()">
+                        <i class="fas fa-plus"></i> Add Reminder
+                    </button>
+                </div>
+                <div id="reminders-list" class="cards-container"></div>
+            </section>
+
+            <!-- Links Section -->
+            <section id="links-section" class="content-section">
+                <div class="section-controls">
+                    <input type="text" id="link-search" class="control-input" placeholder="Search links..." oninput="searchLinks()">
+                    <select id="env-filter" class="control-select" onchange="loadLinks()">
+                        <option value="">All Environments</option>
+                    </select>
+                    <button class="btn btn-secondary" onclick="showManageEnvModal()" style="background: #8b5cf6;">
+                        <i class="fas fa-layer-group"></i> Manage Environments
+                    </button>
+                    <button class="btn btn-primary" onclick="showAddLinkModal()">
+                        <i class="fas fa-plus"></i> Add Link
+                    </button>
+                </div>
+                <div id="links-list" class="cards-container"></div>
+            </section>
+
+            <!-- Settings Section -->
+            <section id="settings-section" class="content-section">
+                <div class="settings-form">
+                    <h3>GitHub Configuration</h3>
+                    <div class="form-group">
+                        <label for="github-username">GitHub Username</label>
+                        <input type="text" id="github-username" class="form-control" placeholder="Sreekanth-Chityala">
+                    </div>
+                    <div class="form-group">
+                        <label for="github-token">GitHub Token</label>
+                        <input type="password" id="github-token" class="form-control" placeholder="Enter your GitHub token">
+                        <small>Token is stored securely and never displayed</small>
+                    </div>
+                    <button class="btn btn-success" onclick="saveSettings()">
+                        <i class="fas fa-save"></i> Save Settings
+                    </button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Add Task Modal -->
+    <div id="task-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('task-modal')">&times;</span>
+            <h2>Add New Task</h2>
+            <form id="task-form">
+                <div class="form-group">
+                    <label for="task-title">Title *</label>
+                    <input type="text" id="task-title" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="task-description">Description</label>
+                    <textarea id="task-description" class="form-control" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="task-status">Status</label>
+                    <select id="task-status" class="form-control">
+                        <option value="pending">Pending</option>
+                        <option value="inprogress">In Progress</option>
+                        <option value="hold">On Hold</option>
+                        <option value="done">Done</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="task-due-date">Due Date</label>
+                    <input type="datetime-local" id="task-due-date" class="form-control">
+                </div>
+                <button type="submit" class="btn btn-primary">Add Task</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Reminder Modal -->
+    <div id="reminder-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('reminder-modal')">&times;</span>
+            <h2>Add New Reminder</h2>
+            <form id="reminder-form">
+                <div class="form-group">
+                    <label for="reminder-title">Title *</label>
+                    <input type="text" id="reminder-title" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="reminder-description">Description</label>
+                    <textarea id="reminder-description" class="form-control" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="reminder-time">Reminder Time *</label>
+                    <input type="datetime-local" id="reminder-time" class="form-control" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Add Reminder</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Link Modal -->
+    <div id="link-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('link-modal')">&times;</span>
+            <h2>Add New Link</h2>
+            <form id="link-form">
+                <div class="form-group">
+                    <label for="link-name">Name *</label>
+                    <input type="text" id="link-name" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="link-url">URL *</label>
+                    <input type="url" id="link-url" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="link-description">Description</label>
+                    <textarea id="link-description" class="form-control" rows="2"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="link-environment">Environment</label>
+                    <select id="link-environment" class="form-control">
+                        <option value="">No Environment</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Add Link</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Import GitHub Issue Modal -->
+    <div id="github-import-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('github-import-modal')">&times;</span>
+            <h2>Import GitHub Issue as Task</h2>
+            <div class="form-group">
+                <label>Select Open Issue</label>
+                <select id="github-issue-select" class="form-control" size="10" style="height: 300px;">
+                    <option value="">Loading issues...</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" onclick="importSelectedIssue()">
+                <i class="fas fa-download"></i> Import Selected Issue
+            </button>
+        </div>
+    </div>
+
+    <!-- Manage Environments Modal -->
+    <div id="env-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('env-modal')">&times;</span>
+            <h2>Manage Environments</h2>
+            <form id="env-form" style="margin-bottom: 20px;">
+                <div class="form-group">
+                    <label for="env-name">Environment Name *</label>
+                    <input type="text" id="env-name" class="form-control" required placeholder="e.g., Production, Staging, Development">
+                </div>
+                <div class="form-group">
+                    <label for="env-color">Color</label>
+                    <input type="color" id="env-color" class="form-control" value="#2563eb">
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> Add Environment
+                </button>
+            </form>
+            <hr>
+            <h3 style="margin: 20px 0 10px 0;">Existing Environments</h3>
+            <div id="env-list"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
