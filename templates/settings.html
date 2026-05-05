@@ -21,6 +21,37 @@
         </form>
     </div>
 </div>
+
+<div class="card" style="margin-top: 20px;">
+    <div class="card-header">
+        <h3>Jira Configuration</h3>
+    </div>
+    <div class="card-body">
+        <form id="jira-settings-form">
+            <div class="form-group">
+                <label for="jira-url">Jira URL</label>
+                <input type="text" id="jira-url" class="form-control" placeholder="https://your-domain.atlassian.net">
+                <small class="form-text">Your Atlassian Jira instance URL</small>
+            </div>
+            <div class="form-group">
+                <label for="jira-email">Jira Email</label>
+                <input type="email" id="jira-email" class="form-control" placeholder="your-email@example.com">
+                <small class="form-text">Email associated with your Jira account</small>
+            </div>
+            <div class="form-group">
+                <label for="jira-api-token">Jira API Token</label>
+                <input type="password" id="jira-api-token" class="form-control" placeholder="Your API token">
+                <small class="form-text">Generate at: <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">Atlassian API Tokens</a></small>
+            </div>
+            <div class="form-group">
+                <label for="jira-project-key">Default Project Key (Optional)</label>
+                <input type="text" id="jira-project-key" class="form-control" placeholder="PROJ">
+                <small class="form-text">Default project to filter issues (e.g., PROJ, DEV)</small>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Jira Settings</button>
+        </form>
+    </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/settings.js') }}"></script>

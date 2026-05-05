@@ -46,6 +46,14 @@ A professional Python web application for managing tasks, GitHub issues, reminde
    - Filter issues by status
    - Direct links to GitHub issues
 
+### 7. **🎫 Jira Integration (NEW!)**
+   - View assigned Jira issues from Atlassian Cloud
+   - Filter by status: Open, In Progress, Done
+   - Priority and type badges
+   - Create tasks directly from Jira issues
+   - Secure API token authentication
+   - See [JIRA_INTEGRATION.md](JIRA_INTEGRATION.md) for setup guide
+
 ## 📋 Prerequisites
 
 ### Required:

@@ -790,6 +790,47 @@ select.form-control {
 
 .badge-closed::before {
     background: var(--text-secondary);
+/* Jira Priority Badges */
+.badge-priority-highest,
+.badge-priority-high {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger-color);
+}
+
+.badge-priority-highest::before,
+.badge-priority-high::before {
+    background: var(--danger-color);
+}
+
+.badge-priority-medium {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning-color);
+}
+
+.badge-priority-medium::before {
+    background: var(--warning-color);
+}
+
+.badge-priority-low,
+.badge-priority-lowest {
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
+}
+
+.badge-priority-low::before,
+.badge-priority-lowest::before {
+    background: #3b82f6;
+}
+
+.badge-secondary {
+    background: rgba(100, 116, 139, 0.1);
+    color: var(--text-secondary);
+}
+
+.badge-secondary::before {
+    background: var(--text-secondary);
+}
+
 }
 
 /* ===== GITHUB ISSUES ===== */

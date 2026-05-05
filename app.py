@@ -79,6 +79,10 @@ class Settings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     github_token = db.Column(db.String(200))
     github_username = db.Column(db.String(100))
+    jira_url = db.Column(db.String(200))  # e.g., https://your-domain.atlassian.net
+    jira_email = db.Column(db.String(200))  # Email for Jira authentication
+    jira_api_token = db.Column(db.String(200))  # API token from Atlassian
+    jira_project_key = db.Column(db.String(50))  # Default project key (e.g., PROJ)
 
 # Routes
 @app.route('/')
@@ -88,6 +92,10 @@ def index():
 @app.route('/github')
 def github_page():
     return render_template('github.html', active_page='github')
+
+@app.route('/jira')
+def jira_page():
+    return render_template('jira.html', active_page='jira')
 
 @app.route('/tasks')
 def tasks_page():
@@ -394,6 +402,10 @@ def settings():
         
         settings.github_token = data.get('github_token', settings.github_token)
         settings.github_username = data.get('github_username', settings.github_username)
+        settings.jira_url = data.get('jira_url', settings.jira_url)
+        settings.jira_email = data.get('jira_email', settings.jira_email)
+        settings.jira_api_token = data.get('jira_api_token', settings.jira_api_token)
+        settings.jira_project_key = data.get('jira_project_key', settings.jira_project_key)
         db.session.commit()
         return jsonify({'message': 'Settings saved successfully'})
     
@@ -401,9 +413,174 @@ def settings():
     if settings:
         return jsonify({
             'github_username': settings.github_username,
-            'has_token': bool(settings.github_token)
+            'has_token': bool(settings.github_token),
+            'jira_url': settings.jira_url,
+            'jira_email': settings.jira_email,
+            'has_jira_token': bool(settings.jira_api_token),
+            'jira_project_key': settings.jira_project_key
         })
-    return jsonify({'github_username': '', 'has_token': False})
+    return jsonify({
+        'github_username': '',
+        'has_token': False,
+        'jira_url': '',
+        'jira_email': '',
+        'has_jira_token': False,
+        'jira_project_key': ''
+    })
+
+@app.route('/api/jira/issues')
+def get_jira_issues():
+    """Get Jira issues assigned to the user"""
+    status = request.args.get('status', 'open')  # open, in_progress, done
+    settings = Settings.query.first()
+    
+    if not settings or not settings.jira_api_token or not settings.jira_url:
+        return jsonify({'error': 'Jira not configured. Please configure in Settings.'}), 400
+    
+    # Map status to Jira status names
+    status_map = {
+        'open': ['To Do', 'Open', 'Backlog'],
+        'in_progress': ['In Progress', 'In Review'],
+        'done': ['Done', 'Closed', 'Resolved']
+    }
+    
+    jira_statuses = status_map.get(status, ['To Do', 'Open'])
+    
+    # Build JQL query
+    jql_parts = []
+    if settings.jira_email:
+        jql_parts.append(f'assignee = "{settings.jira_email}"')
+    if settings.jira_project_key:
+        jql_parts.append(f'project = "{settings.jira_project_key}"')
+    
+    # Add status filter
+    status_filter = ' OR '.join([f'status = "{s}"' for s in jira_statuses])
+    jql_parts.append(f'({status_filter})')
+    
+    jql = ' AND '.join(jql_parts)
+    jql += ' ORDER BY updated DESC'
+    
+    # Jira REST API endpoint - using the new /search/jql endpoint
+    url = f'{settings.jira_url.rstrip("/")}/rest/api/3/search/jql'
+    
+    # Basic auth with email and API token
+    from base64 import b64encode
+    credentials = b64encode(f'{settings.jira_email}:{settings.jira_api_token}'.encode()).decode()
+    
+    headers = {
+        'Authorization': f'Basic {credentials}',
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+    }
+    
+    params = {
+        'jql': jql,
+        'maxResults': 50,
+        'fields': 'summary,status,priority,assignee,created,updated,description,issuetype'
+    }
+    
+    try:
+        print(f"DEBUG: Jira URL: {url}")
+        print(f"DEBUG: JQL Query: {jql}")
+        print(f"DEBUG: Email: {settings.jira_email}")
+        
+        response = requests.get(url, headers=headers, params=params, verify=True, timeout=10)
+        
+        print(f"DEBUG: Response status: {response.status_code}")
+        print(f"DEBUG: Response headers: {response.headers.get('content-type')}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            issues = []
+            for issue in data.get('issues', []):
+                fields = issue.get('fields', {})
+                issues.append({
+                    'key': issue.get('key'),
+                    'id': issue.get('id'),
+                    'summary': fields.get('summary'),
+                    'description': fields.get('description', {}).get('content', [{}])[0].get('content', [{}])[0].get('text', '') if isinstance(fields.get('description'), dict) else '',
+                    'status': fields.get('status', {}).get('name'),
+                    'priority': fields.get('priority', {}).get('name', 'Medium'),
+                    'type': fields.get('issuetype', {}).get('name'),
+                    'created': fields.get('created'),
+                    'updated': fields.get('updated'),
+                    'url': f"{settings.jira_url.rstrip('/')}/browse/{issue.get('key')}"
+                })
+            return jsonify(issues)
+        else:
+            error_msg = f'Jira API error: {response.status_code}'
+            try:
+                error_detail = response.json()
+                error_msg += f' - {error_detail.get("errorMessages", ["Unknown error"])[0]}'
+            except:
+                error_msg += f' - {response.text[:200]}'
+            print(f"DEBUG: Error response: {error_msg}")
+            return jsonify({'error': error_msg}), response.status_code
+    except requests.exceptions.JSONDecodeError as e:
+        error_msg = f'Invalid JSON response from Jira. Check your Jira URL and credentials. Response: {response.text[:200]}'
+        print(f"DEBUG: JSON decode error: {error_msg}")
+        return jsonify({'error': error_msg}), 500
+    except requests.exceptions.RequestException as e:
+        error_msg = f'Connection error: {str(e)}. Check your Jira URL and network connection.'
+        print(f"DEBUG: Request exception: {error_msg}")
+        return jsonify({'error': error_msg}), 500
+    except Exception as e:
+        error_msg = f'Unexpected error: {str(e)}'
+        print(f"DEBUG: Unexpected error: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': error_msg}), 500
+
+@app.route('/api/tasks/from-jira/<string:issue_key>', methods=['POST'])
+def create_task_from_jira(issue_key):
+    """Create a task from a Jira issue"""
+    settings = Settings.query.first()
+    
+    if not settings or not settings.jira_api_token or not settings.jira_url:
+        return jsonify({'error': 'Jira not configured'}), 400
+    
+    # Get issue details from Jira
+    url = f'{settings.jira_url.rstrip("/")}/rest/api/3/issue/{issue_key}'
+    
+    from base64 import b64encode
+    credentials = b64encode(f'{settings.jira_email}:{settings.jira_api_token}'.encode()).decode()
+    
+    headers = {
+        'Authorization': f'Basic {credentials}',
+        'Accept': 'application/json'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, verify=True)
+        if response.status_code == 200:
+            issue = response.json()
+            fields = issue.get('fields', {})
+            
+            # Extract description text
+            description = ''
+            desc_data = fields.get('description', {})
+            if isinstance(desc_data, dict) and 'content' in desc_data:
+                for content_block in desc_data.get('content', []):
+                    if content_block.get('type') == 'paragraph':
+                        for text_item in content_block.get('content', []):
+                            if text_item.get('type') == 'text':
+                                description += text_item.get('text', '') + '\n'
+            
+            task = Task(
+                title=f"[{issue_key}] {fields.get('summary', '')}",
+                description=description.strip(),
+                status='pending',
+                github_issue_number=issue_key,
+                github_issue_url=f"{settings.jira_url.rstrip('/')}/browse/{issue_key}",
+                priority=fields.get('priority', {}).get('name', 'Medium').lower()
+            )
+            db.session.add(task)
+            db.session.commit()
+            return jsonify({'id': task.id, 'message': 'Task created from Jira issue'})
+        else:
+            return jsonify({'error': f'Jira API error: {response.status_code}'}), response.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/tasks/<int:task_id>/mute', methods=['POST'])
 def mute_task(task_id):

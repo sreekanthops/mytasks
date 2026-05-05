@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Jira Issues - Task Dashboard{% endblock %}
+{% block page_title %}Jira Issues{% endblock %}
+
+{% block header_actions %}
+<div class="header-actions">
+    <select id="jira-status" class="form-control" onchange="loadJiraIssues()">
+        <option value="open">Open Issues</option>
+        <option value="in_progress">In Progress</option>
+        <option value="done">Done</option>
+    </select>
+    <button class="btn btn-primary" onclick="loadJiraIssues()">
+        <i class="fas fa-sync"></i> Refresh
+    </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="jira-issues"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/jira.js') }}"></script>
+{% endblock %}
