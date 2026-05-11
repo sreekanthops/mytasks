@@ -1,0 +1,350 @@
+{% extends "base.html" %}
+
+{% block title %}FCP Manager - Task Dashboard{% endblock %}
+
+{% block content %}
+<div class="content-area">
+    <div class="page-header">
+        <h2><i class="fas fa-rocket"></i> FCP Manager</h2>
+        <p class="subtitle">Manage FCP Manual CD Triggers</p>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="quick-actions">
+        <button class="btn btn-primary" onclick="showTriggerModal()">
+            <i class="fas fa-play"></i> Trigger Pipeline
+        </button>
+        <button class="btn btn-success" onclick="showCreateTriggerModal()">
+            <i class="fas fa-plus-circle"></i> Create New Trigger
+        </button>
+        <button class="btn btn-secondary" onclick="openTerminal()">
+            <i class="fas fa-terminal"></i> Open Terminal
+        </button>
+        <button class="btn btn-info" onclick="loadHistory()">
+            <i class="fas fa-history"></i> Refresh History
+        </button>
+    </div>
+
+    <!-- DC Overview -->
+    <div class="dc-overview">
+        <h3>Available Data Centers</h3>
+        <div class="dc-grid" id="dc-grid">
+            <!-- DCs will be loaded here -->
+        </div>
+    </div>
+
+    <!-- Execution History -->
+    <div class="history-section">
+        <h3>Recent Executions</h3>
+        <div class="history-list" id="history-list">
+            <p class="loading">Loading history...</p>
+        </div>
+    </div>
+
+    <!-- Documentation -->
+    <div class="documentation-section">
+        <h3>Quick Reference</h3>
+        <div class="doc-cards">
+            <div class="doc-card">
+                <h4><i class="fas fa-book"></i> Documentation</h4>
+                <p>View complete FCP Manager documentation</p>
+                <a href="https://github.ibm.com/nettools/internal-scripts/blob/main/fcp/README.md" target="_blank" class="btn btn-sm">
+                    View Docs
+                </a>
+            </div>
+            <div class="doc-card">
+                <h4><i class="fas fa-exclamation-triangle"></i> Known Issues</h4>
+                <ul>
+                    <li>nettools-sm parameter requires manual update</li>
+                    <li>Worker creation needs manual steps</li>
+                </ul>
+            </div>
+            <div class="doc-card">
+                <h4><i class="fas fa-info-circle"></i> Quick Tips</h4>
+                <ul>
+                    <li>Use history numbers for quick re-runs</li>
+                    <li>Check worker exists before creating triggers</li>
+                    <li>Verify nettools-sm uses prod-sm</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Trigger Pipeline Modal -->
+<div id="triggerModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Trigger FCP Pipeline</h3>
+            <span class="close" onclick="closeTriggerModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="triggerForm">
+                <div class="form-group">
+                    <label for="serviceName">Service Name:</label>
+                    <input type="text" id="serviceName" name="serviceName" required 
+                           placeholder="e.g., snitch, log-alerts">
+                    <small>Enter the service name to trigger its pipeline</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="openTerminal" checked>
+                        Open in terminal for interactive mode
+                    </label>
+                    <small>Recommended for full control and parameter modification</small>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeTriggerModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-play"></i> Trigger
+                    </button>
+                </div>
+            </form>
+            
+            <div id="triggerOutput" class="output-section" style="display: none;">
+                <h4>Output:</h4>
+                <pre id="outputContent"></pre>
+            </div>
+        </div>
+    </div>
+
+<!-- Create New Trigger Modal -->
+<div id="createTriggerModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Create New Trigger</h3>
+            <span class="close" onclick="closeCreateTriggerModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="createTriggerForm">
+                <div class="form-group">
+                    <label for="createServiceName">Service Name:</label>
+                    <input type="text" id="createServiceName" name="serviceName" required 
+                           placeholder="e.g., snitch, log-alerts">
+                    <small>Enter the service name for the new trigger</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="dcSelection">Select Data Center(s):</label>
+                    <select id="dcSelection" name="dcSelection" multiple size="7">
+                        <option value="1">1. syd05 (Sydney)</option>
+                        <option value="2">2. lon02 (London)</option>
+                        <option value="3">3. lon05 (London)</option>
+                        <option value="4">4. lon06 (London)</option>
+                        <option value="5">5. osa23 (Osaka)</option>
+                        <option value="6">6. syd04 (Sydney)</option>
+                        <option value="all">all. All DCs (1-6)</option>
+                    </select>
+                    <small>Hold Ctrl/Cmd to select multiple DCs, or select 'all' for all DCs</small>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="openCreateTerminal" checked>
+                        Open in terminal for interactive mode
+                    </label>
+                    <small>Recommended - allows you to review and confirm each step</small>
+                </div>
+
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Note:</strong> This will open the FCP Manager script in terminal mode. 
+                    You'll be able to review all settings before creating the trigger.
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeCreateTriggerModal()">Cancel</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-plus-circle"></i> Create Trigger
+                    </button>
+                </div>
+            </form>
+            
+            <div id="createTriggerOutput" class="output-section" style="display: none;">
+                <h4>Output:</h4>
+                <pre id="createOutputContent"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+
+<style>
+.dc-overview {
+    margin: 2rem 0;
+}
+
+.dc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.dc-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.dc-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.dc-card h4 {
+    margin: 0 0 0.5rem 0;
+    color: var(--primary-color);
+}
+
+.dc-card .dc-id {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.history-section {
+    margin: 2rem 0;
+}
+
+.history-list {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.history-item {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.history-item:last-child {
+    border-bottom: none;
+}
+
+.history-item:hover {
+    background: var(--hover-bg);
+}
+
+.history-info h4 {
+    margin: 0 0 0.25rem 0;
+    color: var(--text-primary);
+}
+
+.history-info p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.history-actions button {
+    margin-left: 0.5rem;
+}
+
+.documentation-section {
+    margin: 2rem 0;
+}
+
+.doc-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.doc-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.doc-card h4 {
+    margin: 0 0 1rem 0;
+    color: var(--primary-color);
+}
+
+.doc-card ul {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+}
+
+.doc-card li {
+    margin: 0.5rem 0;
+    color: var(--text-secondary);
+}
+
+.output-section {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    background: #f5f5f5;
+    border-radius: 4px;
+}
+
+.output-section pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+}
+
+.quick-actions {
+    display: flex;
+    gap: 1rem;
+    margin: 1rem 0;
+    flex-wrap: wrap;
+}
+
+.loading {
+
+.alert-info {
+    background-color: #e3f2fd;
+    border: 1px solid #2196f3;
+    border-radius: 4px;
+    padding: 1rem;
+    margin: 1rem 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.alert-info i {
+    color: #2196f3;
+    margin-top: 0.2rem;
+}
+
+.alert-info strong {
+    color: #1976d2;
+}
+
+#dcSelection {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--card-bg);
+    color: var(--text-primary);
+}
+
+#dcSelection option {
+    padding: 0.5rem;
+}
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 2rem;
+}
+</style>
+
+<script src="{{ url_for('static', filename='js/fcp.js') }}?v=2"></script>
+{% endblock %}

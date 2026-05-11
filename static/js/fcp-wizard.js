@@ -95,12 +95,15 @@ async function searchService() {
         });
         
         const result = await response.json();
+        console.log('Search result:', result);
         
         if (result.success && result.toolchains && result.toolchains.length > 0) {
             wizardData.toolchains = result.toolchains;
+            console.log('Toolchains stored:', wizardData.toolchains);
             showValidation(`Found ${result.toolchains.length} toolchain(s)`, 'success');
             setTimeout(nextStep, 500);
         } else {
+            console.log('No toolchains found or invalid response');
             showValidation('No toolchains found for this service', 'error');
         }
     } catch (error) {
@@ -126,12 +129,16 @@ function loadStepContent() {
 
 // Load Step 3 content (Toolchain/Trigger/DC selection)
 function loadStep3Content() {
+    console.log('loadStep3Content called');
+    console.log('wizardData:', wizardData);
+    
     const content = document.getElementById('selectionContent');
     const title = document.getElementById('step3Title');
     const description = document.getElementById('step3Description');
     
     // Check if we need to show toolchain selection first
     if (!wizardData.toolchain && wizardData.toolchains && wizardData.toolchains.length > 1) {
+        console.log('Showing toolchain selection for multiple toolchains');
         // Show toolchain selection for both modes when multiple toolchains exist
         title.textContent = 'Select Toolchain';
         description.textContent = `Found ${wizardData.toolchains.length} toolchains. Choose one to continue.`;
@@ -150,9 +157,17 @@ function loadStep3Content() {
         return;
     }
     
-    // Auto-select toolchain if only one
+    // Auto-select toolchain if only one and fetch triggers
     if (!wizardData.toolchain && wizardData.toolchains && wizardData.toolchains.length === 1) {
+        console.log('Auto-selecting single toolchain');
         wizardData.toolchain = wizardData.toolchains[0];
+        console.log('Selected toolchain:', wizardData.toolchain);
+        // Fetch triggers for the auto-selected toolchain
+        if (wizardData.mode === 'trigger') {
+            console.log('Calling selectToolchain(0) for trigger mode');
+            selectToolchain(0);
+            return;
+        }
     }
     
     if (wizardData.mode === 'trigger') {
@@ -211,9 +226,11 @@ function loadStep3Content() {
 async function selectToolchain(index) {
     wizardData.toolchain = wizardData.toolchains[index];
     
-    // Highlight selected
-    document.querySelectorAll('.selection-item').forEach(item => item.classList.remove('selected'));
-    event.target.closest('.selection-item').classList.add('selected');
+    // Highlight selected (only if called from UI click)
+    if (typeof event !== 'undefined' && event.target) {
+        document.querySelectorAll('.selection-item').forEach(item => item.classList.remove('selected'));
+        event.target.closest('.selection-item').classList.add('selected');
+    }
     
     addLog(`Selected toolchain: ${wizardData.toolchain.name}`);
     
@@ -406,7 +423,16 @@ async function loadStep4Content() {
             
             if (result.success && result.properties) {
                 wizardData.properties = result.properties;
+                wizardData.globalProperties = result.global_properties || {};
                 wizardData.propertyOverrides = {};
+                
+                // Auto-set FCP branch parameters if this is an FCP trigger
+                const isFCP = wizardData.trigger.name.toLowerCase().includes('fcp');
+                if (isFCP) {
+                    wizardData.propertyOverrides['one-pipeline-config-branch'] = 'fcp-classic-pipeline';
+                    wizardData.propertyOverrides['pipeline-config-branch'] = 'fcp-classic-pipeline';
+                    console.log('FCP trigger detected - pre-setting both branches to fcp-classic-pipeline');
+                }
                 
                 let html = '<div class="config-section">';
                 html += '<h3>Trigger Details</h3>';
@@ -429,11 +455,51 @@ async function loadStep4Content() {
                 // Add parameters section
                 html += '<div class="config-section" style="margin-top: 2rem;">';
                 html += '<h3>Pipeline Parameters <small style="color: #666;">(Click to edit)</small></h3>';
+                
+                // Add global properties section if available
+                if (result.global_properties && Object.keys(result.global_properties).length > 0) {
+                    html += '<h4 style="margin-top: 1.5rem; color: #0f62fe;">Global Pipeline Properties</h4>';
+                    html += '<div class="params-grid">';
+                    
+                    Object.entries(result.global_properties).forEach(([key, value], index) => {
+                        const globalIndex = `global-${index}`;
+                        // Use override value if set, otherwise use original value
+                        const displayValue = wizardData.propertyOverrides[key] || value || '';
+                        html += `
+                            <div class="param-item" data-index="${globalIndex}">
+                                <div class="param-header">
+                                    <span class="param-name">${key}</span>
+                                    <span class="param-type" style="background: #0f62fe;">global</span>
+                                </div>
+                                <div class="param-value-container">
+                                    <input type="text"
+                                           class="param-input"
+                                           id="param-${globalIndex}"
+                                           value="${displayValue}"
+                                           onchange="updateGlobalProperty('${key}', this.value)"
+                                           placeholder="${key}">
+                                    <button class="btn-edit" onclick="focusGlobalParam('${globalIndex}')"><i class="fas fa-edit"></i></button>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div>';
+                }
+                
+                // Add trigger-specific properties
+                html += '<h4 style="margin-top: 1.5rem; color: #24a148;">Trigger-Specific Properties</h4>';
                 html += '<div class="params-grid">';
                 
                 result.properties.forEach((prop, index) => {
                     const isSecure = prop.type === 'secure' || prop.type === 'integration';
-                    const displayValue = isSecure ? '••••••••' : (prop.value || '');
+                    // Use override value if set, otherwise use original value
+                    let displayValue;
+                    if (isSecure) {
+                        displayValue = '••••••••';
+                    } else {
+                        displayValue = wizardData.propertyOverrides[prop.name] || prop.value || '';
+                    }
                     
                     html += `
                         <div class="param-item" data-index="${index}">
@@ -525,6 +591,15 @@ function updateProperty(index, value) {
     console.log('Property updated:', prop.name, '=', value);
 }
 
+// Update global property value
+function updateGlobalProperty(key, value) {
+    if (!wizardData.propertyOverrides) {
+        wizardData.propertyOverrides = {};
+    }
+    wizardData.propertyOverrides[key] = value;
+    console.log('Global property updated:', key, '=', value);
+}
+
 // Focus on parameter input
 function focusParam(index) {
     const input = document.getElementById(`param-${index}`);
@@ -534,8 +609,29 @@ function focusParam(index) {
     }
 }
 
+// Focus on global parameter input
+function focusGlobalParam(index) {
+    const input = document.getElementById(`param-${index}`);
+    if (input) {
+        input.focus();
+        input.select();
+    }
+}
+
 // Execute action
 async function executeAction() {
+    // For FCP triggers, always set both branch parameters to fcp-classic-pipeline
+    if (wizardData.mode === 'trigger') {
+        const isFCP = wizardData.trigger.name.toLowerCase().includes('fcp');
+        
+        if (isFCP) {
+            // Always set both branches to fcp-classic-pipeline for FCP triggers
+            wizardData.propertyOverrides['one-pipeline-config-branch'] = 'fcp-classic-pipeline';
+            wizardData.propertyOverrides['pipeline-config-branch'] = 'fcp-classic-pipeline';
+            console.log('FCP trigger detected - setting both branches to fcp-classic-pipeline');
+        }
+    }
+    
     // Move to execution step
     nextStep();
     
@@ -545,6 +641,7 @@ async function executeAction() {
         await createTriggers();
     }
 }
+
 
 // Execute trigger
 async function executeTrigger() {
@@ -580,16 +677,123 @@ async function executeTrigger() {
             if (result.url) {
                 addLog(`URL: ${result.url}`);
             }
-            updateStatus('Execution completed successfully!');
-            showDoneButton();
+            addLog('');
+            addLog('Fetching pipeline logs...');
+            
+            // Store pipeline info for polling
+            wizardData.pipelineId = result.pipeline_id;
+            wizardData.runId = result.run_id;
+            
+            // Start polling for logs
+            pollPipelineLogs();
         } else {
             addLog(`✗ Error: ${result.error}`, 'error');
             updateStatus('Execution failed');
+            showDoneButton();
         }
     } catch (error) {
         console.error('Execution error:', error);
         addLog(`✗ Error: ${error.message}`, 'error');
         updateStatus('Execution failed');
+        showDoneButton();
+    }
+}
+
+// Poll pipeline logs
+let pollInterval = null;
+let lastTaskCount = 0;
+
+async function pollPipelineLogs() {
+    if (!wizardData.pipelineId || !wizardData.runId) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/fcp/pipeline-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                pipeline_id: wizardData.pipelineId,
+                run_id: wizardData.runId
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            const status = result.status;
+            const taskRuns = result.task_runs || [];
+            
+            // Display new tasks
+            if (taskRuns.length > lastTaskCount) {
+                for (let i = lastTaskCount; i < taskRuns.length; i++) {
+                    const task = taskRuns[i];
+                    const statusIcon = getTaskStatusIcon(task.status);
+                    addLog(`${statusIcon} Task: ${task.name} - ${task.status}`);
+                }
+                lastTaskCount = taskRuns.length;
+            }
+            
+            // Update overall status
+            updateStatus(`Pipeline Status: ${status}`);
+            
+            // Check if pipeline is complete
+            if (status === 'succeeded' || status === 'failed' || status === 'error') {
+                if (pollInterval) {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                }
+                
+                addLog('');
+                if (status === 'succeeded') {
+                    addLog('✓ Pipeline completed successfully!', 'success');
+                    updateStatus('Execution completed successfully!');
+                } else {
+                    addLog(`✗ Pipeline ${status}`, 'error');
+                    updateStatus(`Execution ${status}`);
+                }
+                
+                showDoneButton();
+                return;
+            }
+            
+            // Continue polling if not complete
+            if (!pollInterval) {
+                pollInterval = setInterval(pollPipelineLogs, 5000); // Poll every 5 seconds
+            }
+        } else {
+            addLog(`Warning: Could not fetch pipeline status - ${result.error}`, 'error');
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+            showDoneButton();
+        }
+    } catch (error) {
+        console.error('Polling error:', error);
+        addLog(`Warning: Error polling pipeline status - ${error.message}`, 'error');
+        if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+        }
+        showDoneButton();
+    }
+}
+
+// Get task status icon
+function getTaskStatusIcon(status) {
+    switch (status.toLowerCase()) {
+        case 'succeeded':
+            return '✓';
+        case 'failed':
+        case 'error':
+            return '✗';
+        case 'running':
+            return '⟳';
+        case 'pending':
+            return '○';
+        default:
+            return '•';
     }
 }
 

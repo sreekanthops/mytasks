@@ -1146,6 +1146,8 @@ def fcp_search_toolchains():
         data = request.get_json()
         service_name = data.get('service_name', '').strip()
         
+        print(f"DEBUG: Searching for service: {service_name}")
+        
         if not service_name:
             return jsonify({'success': False, 'error': 'Service name is required'})
         
@@ -1161,13 +1163,23 @@ def fcp_search_toolchains():
             | {{name, toolchain_guid}}
         ' | jq -s .'''
         
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        print(f"DEBUG: Running command: {cmd}")
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
         
-        if result.returncode != 0 or not result.stdout.strip():
+        print(f"DEBUG: Command return code: {result.returncode}")
+        print(f"DEBUG: Command stdout: {result.stdout[:200] if result.stdout else 'empty'}")
+        print(f"DEBUG: Command stderr: {result.stderr[:200] if result.stderr else 'empty'}")
+        
+        if result.returncode != 0:
+            return jsonify({'success': False, 'error': f'Command failed: {result.stderr}'})
+        
+        if not result.stdout.strip():
             return jsonify({'success': False, 'error': 'No toolchains found'})
         
         # Parse JSON output
         toolchains = json_module.loads(result.stdout)
+        
+        print(f"DEBUG: Found {len(toolchains)} toolchains: {toolchains}")
         
         if not toolchains:
             return jsonify({'success': False, 'error': 'No toolchains found'})
@@ -1175,6 +1187,9 @@ def fcp_search_toolchains():
         return jsonify({'success': True, 'toolchains': toolchains})
         
     except Exception as e:
+        import traceback
+        print(f"DEBUG: Exception in search: {str(e)}")
+        print(traceback.format_exc())
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/fcp/get-triggers', methods=['POST'])
@@ -1276,6 +1291,17 @@ def fcp_get_trigger_properties():
         trigger_data = response.json()
         properties = trigger_data.get('properties', [])
         
+        # Also fetch pipeline's global/default properties
+        pipeline_url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}"
+        pipeline_response = requests.get(pipeline_url, headers=headers, timeout=30)
+        
+        global_properties = {}
+        if pipeline_response.status_code == 200:
+            pipeline_data = pipeline_response.json()
+            for prop in pipeline_data.get('properties', []):
+                global_properties[prop.get('name')] = prop.get('value', '')
+            print(f"DEBUG: Found {len(global_properties)} global pipeline properties")
+        
         # Format properties for frontend
         formatted_properties = []
         for prop in properties:
@@ -1287,11 +1313,12 @@ def fcp_get_trigger_properties():
                 'path': prop.get('path', '')
             })
         
-        print(f"DEBUG: Found {len(formatted_properties)} properties")
+        print(f"DEBUG: Found {len(formatted_properties)} trigger properties")
         
         return jsonify({
             'success': True,
             'properties': formatted_properties,
+            'global_properties': global_properties,
             'trigger_name': trigger_data.get('name'),
             'pipeline_id': pipeline_id
         })
@@ -1376,6 +1403,7 @@ def fcp_trigger_pipeline_wizard():
         return jsonify({
             'success': True,
             'run_id': run_id,
+            'pipeline_id': pipeline_id,
             'url': pipeline_url,
             'message': 'Pipeline triggered successfully'
         })
@@ -1385,6 +1413,80 @@ def fcp_trigger_pipeline_wizard():
         print(f"DEBUG: Exception: {str(e)}")
         print(traceback.format_exc())
         return jsonify({'success': False, 'error': str(e)})
+@app.route('/api/fcp/pipeline-status', methods=['POST'])
+def fcp_pipeline_status():
+    """Get pipeline run status and logs"""
+    try:
+        data = request.get_json()
+        pipeline_id = data.get('pipeline_id')
+        run_id = data.get('run_id')
+        
+        if not pipeline_id or not run_id:
+            return jsonify({'success': False, 'error': 'Pipeline ID and Run ID are required'})
+        
+        # Get IAM token
+        iam_token = get_iam_token()
+        if not iam_token:
+            return jsonify({'success': False, 'error': 'Failed to get IAM token'})
+        
+        # Get pipeline run status
+        url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}/pipeline_runs/{run_id}"
+        headers = {
+            'Authorization': f'Bearer {iam_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        
+        if response.status_code != 200:
+            return jsonify({'success': False, 'error': f'API error: {response.status_code}'})
+        
+        run_data = response.json()
+        
+        print(f"DEBUG: Pipeline run data: {json.dumps(run_data, indent=2)[:500]}")
+        
+        # Extract status - handle both string and dict formats
+        status_data = run_data.get('status', {})
+        if isinstance(status_data, str):
+            status = status_data
+        elif isinstance(status_data, dict):
+            status = status_data.get('state', 'unknown')
+        else:
+            status = 'unknown'
+        
+        # Extract task runs
+        task_runs = []
+        for task_run in run_data.get('task_runs', []):
+            task_status = task_run.get('status', {})
+            if isinstance(task_status, str):
+                task_state = task_status
+            elif isinstance(task_status, dict):
+                task_state = task_status.get('state', 'unknown')
+            else:
+                task_state = 'unknown'
+                
+            task_info = {
+                'name': task_run.get('task_name', 'Unknown'),
+                'status': task_state,
+                'start_time': task_run.get('status', {}).get('start_time') if isinstance(task_run.get('status'), dict) else None,
+                'completion_time': task_run.get('status', {}).get('completion_time') if isinstance(task_run.get('status'), dict) else None
+            }
+            task_runs.append(task_info)
+        
+        return jsonify({
+            'success': True,
+            'status': status,
+            'task_runs': task_runs,
+            'start_time': run_data.get('created_at'),
+            'updated_at': run_data.get('updated_at')
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"DEBUG: Exception: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)})
+
 
 
 # ============================================================================
@@ -1465,8 +1567,8 @@ def fetch_template_trigger(iam_token, dc):
         traceback.print_exc()
         return None
 
-def get_worker_config(toolchain_guid, iam_token):
-    """Get worker configuration from toolchain"""
+def get_worker_config(toolchain_guid, iam_token, dc=None):
+    """Get worker configuration from toolchain for specific DC"""
     try:
         result = subprocess.run(
             ['ibmcloud', 'dev', 'toolchain-get', toolchain_guid, '--output', 'json'],
@@ -1477,6 +1579,28 @@ def get_worker_config(toolchain_guid, iam_token):
         if result.returncode == 0:
             toolchain_data = json.loads(result.stdout)
             services = toolchain_data.get('items', [{}])[0].get('services', [])
+            
+            # If DC is specified, look for DC-specific worker first
+            if dc:
+                expected_worker_name = f'fcp-{dc}-nettools-cd-worker'
+                print(f"DEBUG: Looking for worker: {expected_worker_name}")
+                
+                for service in services:
+                    if service.get('service_id') == 'private_worker':
+                        worker_name = service.get('parameters', {}).get('name', '')
+                        print(f"DEBUG: Found worker: {worker_name}")
+                        if worker_name == expected_worker_name:
+                            print(f"DEBUG: Matched DC-specific worker: {worker_name}")
+                            return {
+                                'id': service.get('instance_id'),
+                                'name': worker_name
+                            }
+                
+                # If DC-specific worker not found, return error
+                print(f"DEBUG: DC-specific worker '{expected_worker_name}' not found")
+                return None
+            
+            # If no DC specified, return first worker found
             for service in services:
                 if service.get('service_id') == 'private_worker':
                     return {
@@ -1642,10 +1766,10 @@ def fcp_create_trigger_wizard():
         if not pipeline_id:
             return jsonify({'success': False, 'error': 'Failed to get pipeline ID'})
         
-        # Get worker configuration
-        worker_config = get_worker_config(toolchain_guid, iam_token)
+        # Get worker configuration for specific DC
+        worker_config = get_worker_config(toolchain_guid, iam_token, dc)
         if not worker_config:
-            return jsonify({'success': False, 'error': 'No worker found in toolchain'})
+            return jsonify({'success': False, 'error': f'Worker not found: fcp-{dc}-nettools-cd-worker. Please create the worker first.'})
         
         # Get Secrets Manager integration
         sm_integration_id = get_secrets_manager_integration(toolchain_guid, iam_token)
