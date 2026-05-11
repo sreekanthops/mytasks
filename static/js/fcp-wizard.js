@@ -328,10 +328,14 @@ function showTriggerSelection() {
         filteredTriggers.forEach((trigger, index) => {
             // Find original index
             const originalIndex = wizardData.triggers.indexOf(trigger);
+            // Get color based on DC name
+            const dcColor = getDCColor(trigger.name);
             html += `
-                <div class="selection-item" onclick="selectTrigger(${originalIndex})">
+                <div class="selection-item" onclick="selectTrigger(${originalIndex})"
+                     style="border-left: 4px solid ${dcColor};">
                     <h4>${trigger.name}</h4>
                     <p><small>${trigger.type}</small></p>
+                    <div class="dc-indicator" style="position: absolute; top: 10px; right: 10px; width: 12px; height: 12px; border-radius: 50%; background: ${dcColor};"></div>
                 </div>
             `;
         });
@@ -456,40 +460,31 @@ async function loadStep4Content() {
                 html += '<div class="config-section" style="margin-top: 2rem;">';
                 html += '<h3>Pipeline Parameters <small style="color: #666;">(Click to edit)</small></h3>';
                 
-                // Add global properties section if available
-                if (result.global_properties && Object.keys(result.global_properties).length > 0) {
-                    html += '<h4 style="margin-top: 1.5rem; color: #0f62fe;">Global Pipeline Properties</h4>';
-                    html += '<div class="params-grid">';
-                    
-                    Object.entries(result.global_properties).forEach(([key, value], index) => {
-                        const globalIndex = `global-${index}`;
-                        // Use override value if set, otherwise use original value
-                        const displayValue = wizardData.propertyOverrides[key] || value || '';
-                        html += `
-                            <div class="param-item" data-index="${globalIndex}">
-                                <div class="param-header">
-                                    <span class="param-name">${key}</span>
-                                    <span class="param-type" style="background: #0f62fe;">global</span>
-                                </div>
-                                <div class="param-value-container">
-                                    <input type="text"
-                                           class="param-input"
-                                           id="param-${globalIndex}"
-                                           value="${displayValue}"
-                                           onchange="updateGlobalProperty('${key}', this.value)"
-                                           placeholder="${key}">
-                                    <button class="btn-edit" onclick="focusGlobalParam('${globalIndex}')"><i class="fas fa-edit"></i></button>
-                                </div>
-                            </div>
-                        `;
-                    });
-                    
-                    html += '</div>';
-                }
+                // Always show one-pipeline-config-branch parameter
+                const onePipelineBranch = wizardData.propertyOverrides['one-pipeline-config-branch'] ||
+                                         result.global_properties?.['one-pipeline-config-branch'] ||
+                                         'fcp-classic-pipeline';
                 
-                // Add trigger-specific properties
-                html += '<h4 style="margin-top: 1.5rem; color: #24a148;">Trigger-Specific Properties</h4>';
                 html += '<div class="params-grid">';
+                html += `
+                    <div class="param-item" data-index="one-pipeline-branch">
+                        <div class="param-header">
+                            <span class="param-name">one-pipeline-config-branch</span>
+                            <span class="param-type" style="background: #0f62fe;">required</span>
+                        </div>
+                        <div class="param-value-container">
+                            <input type="text"
+                                   class="param-input"
+                                   id="param-one-pipeline-branch"
+                                   value="${onePipelineBranch}"
+                                   onchange="updateGlobalProperty('one-pipeline-config-branch', this.value)"
+                                   placeholder="fcp-classic-pipeline">
+                            <button class="btn-edit" onclick="focusGlobalParam('one-pipeline-branch')"><i class="fas fa-edit"></i></button>
+                        </div>
+                    </div>
+                `;
+                
+                // Add trigger-specific properties (excluding global ones)
                 
                 result.properties.forEach((prop, index) => {
                     const isSecure = prop.type === 'secure' || prop.type === 'integration';
@@ -676,6 +671,8 @@ async function executeTrigger() {
             addLog(`Run ID: ${result.run_id || 'N/A'}`);
             if (result.url) {
                 addLog(`URL: ${result.url}`);
+                // Add clickable button to open pipeline
+                addPipelineButton(result.url, wizardData.trigger.name);
             }
             addLog('');
             addLog('Fetching pipeline logs...');
@@ -831,6 +828,14 @@ async function createTriggers() {
                     addLog(`  Trigger ID: ${result.trigger_id}`);
                 }
                 successCount++;
+            } else if (result.worker_not_found) {
+                // Worker not found, show modal with creation details
+                addLog(`⚠ Worker not found for ${dc}: ${result.expected_worker}`, 'warning');
+                addLog(`Opening worker creation guide...`, 'info');
+                
+                // Show modal with worker creation details
+                showWorkerModal(dc, result.expected_worker, wizardData.toolchain.toolchain_guid);
+                failCount++;
             } else {
                 addLog(`✗ Failed for ${dc}: ${result.error}`, 'error');
                 if (result.traceback) {
@@ -875,9 +880,140 @@ function clearLogs() {
     document.getElementById('logContent').innerHTML = '';
 }
 
+// Add pipeline button with color coding based on DC name
+function addPipelineButton(url, triggerName) {
+    const logContent = document.getElementById('logContent');
+    const buttonContainer = document.createElement('div');
+    buttonContainer.className = 'pipeline-button-container';
+    buttonContainer.style.cssText = 'margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 8px;';
+    
+    // Extract DC from trigger name and determine color
+    const dcColor = getDCColor(triggerName);
+    
+    const button = document.createElement('a');
+    button.href = url;
+    button.target = '_blank';
+    button.className = 'btn btn-pipeline';
+    button.style.cssText = `
+        display: inline-block;
+        padding: 12px 24px;
+        background: ${dcColor};
+        color: white;
+        text-decoration: none;
+        border-radius: 6px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    `;
+    button.innerHTML = `<i class="fas fa-external-link-alt"></i> Open Pipeline: ${triggerName}`;
+    
+    // Add hover effect
+    button.onmouseover = function() {
+        this.style.transform = 'translateY(-2px)';
+        this.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25)';
+    };
+    button.onmouseout = function() {
+        this.style.transform = 'translateY(0)';
+        this.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+    };
+    
+    buttonContainer.appendChild(button);
+    logContent.appendChild(buttonContainer);
+    logContent.scrollTop = logContent.scrollHeight;
+}
+
+// Get color based on DC name
+function getDCColor(triggerName) {
+    const name = triggerName.toLowerCase();
+    
+    // Extract DC identifier from trigger name
+    if (name.includes('lon')) {
+        return '#0f62fe'; // Blue for London
+    } else if (name.includes('syd')) {
+        return '#24a148'; // Green for Sydney
+    } else if (name.includes('osa')) {
+        return '#d12771'; // Pink/Magenta for Osaka
+    } else if (name.includes('tok')) {
+        return '#8a3ffc'; // Purple for Tokyo
+    } else if (name.includes('dal')) {
+        return '#ff832b'; // Orange for Dallas
+    } else if (name.includes('wdc') || name.includes('was')) {
+        return '#fa4d56'; // Red for Washington DC
+    } else if (name.includes('fra')) {
+        return '#198038'; // Dark Green for Frankfurt
+    } else if (name.includes('tor')) {
+        return '#002d9c'; // Dark Blue for Toronto
+    } else {
+        return '#6929c4'; // Default Purple
+    }
+}
+
 function showDoneButton() {
     document.getElementById('doneBtn').style.display = 'inline-block';
     document.querySelector('.status-indicator i').className = 'fas fa-check-circle';
 }
 
 // Made with Bob
+
+// Worker Modal Functions
+function showWorkerModal(dc, workerName, toolchainGuid) {
+    const modal = document.getElementById('workerModal');
+    const smSecret = `FCP-${dc.toUpperCase()}-SERVICEID-TEKTON-CDWORKER`;
+    const smReference = `ref://secrets-manager.us-south.Default.Secrets%20Manager-Production/CICD/${smSecret}`;
+    
+    // Set values
+    document.getElementById('workerNameDisplay').textContent = workerName;
+    document.getElementById('workerName').value = workerName;
+    document.getElementById('smSecret').value = smSecret;
+    document.getElementById('smReference').value = smReference;
+    
+    // Store toolchain GUID for later use
+    modal.dataset.toolchainGuid = toolchainGuid;
+    
+    // Show modal
+    modal.style.display = 'flex';
+}
+
+function closeWorkerModal() {
+    const modal = document.getElementById('workerModal');
+    modal.style.display = 'none';
+}
+
+function copyToClipboard(elementId) {
+    const input = document.getElementById(elementId);
+    input.select();
+    input.setSelectionRange(0, 99999); // For mobile devices
+    
+    try {
+        document.execCommand('copy');
+        
+        // Show feedback
+        const button = event.target.closest('.btn-copy');
+        const originalHTML = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-check"></i>';
+        button.style.background = '#10b981';
+        
+        setTimeout(() => {
+            button.innerHTML = originalHTML;
+            button.style.background = '';
+        }, 2000);
+    } catch (err) {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    }
+}
+
+function openToolchainInBrowser() {
+    const modal = document.getElementById('workerModal');
+    const toolchainGuid = modal.dataset.toolchainGuid;
+    const url = `https://cloud.ibm.com/devops/toolchains/${toolchainGuid}?env_id=ibm:yp:us-south`;
+    window.open(url, '_blank');
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+    const modal = document.getElementById('workerModal');
+    if (event.target === modal) {
+        closeWorkerModal();
+    }
+}

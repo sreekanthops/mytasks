@@ -1808,12 +1808,15 @@ def fcp_create_trigger_wizard():
         # Get worker configuration for specific DC
         worker_config = get_worker_config(toolchain_guid, iam_token, dc)
         if not worker_config:
-            # Worker not found, try to create it
-            print(f"DEBUG: Worker fcp-{dc}-nettools-cd-worker not found, creating new worker...")
-            worker_config = create_worker_integration(toolchain_guid, iam_token, dc, service_name)
-            if not worker_config:
-                return jsonify({'success': False, 'error': f'Failed to create worker: FCP-{dc.upper()}-{service_name.upper()}-TEKTON-CDWORKER'})
-            print(f"DEBUG: Worker created successfully: {worker_config}")
+            # Worker not found, return error to show modal
+            print(f"DEBUG: Worker fcp-{dc}-nettools-cd-worker not found")
+            return jsonify({
+                'success': False,
+                'worker_not_found': True,
+                'dc': dc,
+                'expected_worker': f'fcp-{dc}-nettools-cd-worker',
+                'message': f'Worker "fcp-{dc}-nettools-cd-worker" not found. Please create it manually using the modal.'
+            })
         
         # Get Secrets Manager integration
         sm_integration_id = get_secrets_manager_integration(toolchain_guid, iam_token)

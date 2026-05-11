@@ -156,6 +156,87 @@
             </div>
         </div>
     </div>
+
+<!-- Worker Creation Modal -->
+<div id="workerModal" class="worker-modal" style="display: none;">
+    <div class="worker-modal-content">
+        <div class="worker-modal-header">
+            <h3><i class="fas fa-server"></i> Create Private Worker</h3>
+            <button class="worker-modal-close" onclick="closeWorkerModal()">&times;</button>
+        </div>
+        <div class="worker-modal-body">
+            <p class="worker-modal-description">
+                The worker <strong id="workerNameDisplay"></strong> is not found. 
+                Use these values to create it manually in IBM Cloud:
+            </p>
+            
+            <div class="worker-info-grid">
+                <div class="worker-info-item">
+                    <label><i class="fas fa-tag"></i> Worker Name</label>
+                    <div class="worker-info-value">
+                        <input type="text" id="workerName" readonly>
+                        <button class="btn-copy" onclick="copyToClipboard('workerName')">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="worker-info-item">
+                    <label><i class="fas fa-key"></i> Service ID</label>
+                    <div class="worker-info-value">
+                        <input type="text" id="serviceId" readonly value="ServiceId-b0303a41-6667-4229-86db-013ae4496b31">
+                        <button class="btn-copy" onclick="copyToClipboard('serviceId')">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="worker-info-item">
+                    <label><i class="fas fa-lock"></i> Secrets Manager Secret</label>
+                    <div class="worker-info-value">
+                        <input type="text" id="smSecret" readonly>
+                        <button class="btn-copy" onclick="copyToClipboard('smSecret')">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="worker-info-item">
+                    <label><i class="fas fa-shield-alt"></i> Secrets Manager Reference</label>
+                    <div class="worker-info-value">
+                        <input type="text" id="smReference" readonly>
+                        <button class="btn-copy" onclick="copyToClipboard('smReference')">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="worker-instructions">
+                <h4><i class="fas fa-list-ol"></i> Steps to Create Worker:</h4>
+                <ol>
+                    <li>Go to your <a href="https://cloud.ibm.com/devops/toolchains" target="_blank">IBM Cloud Toolchain</a></li>
+                    <li>Click on <strong>Add tool integration</strong></li>
+                    <li>Select <strong>Delivery Pipeline Private Worker</strong></li>
+                    <li>Enter the <strong>Worker Name</strong> from above</li>
+                    <li>Use <strong>Service ID</strong> as the Worker Queue Identifier</li>
+                    <li>Use <strong>Secrets Manager Reference</strong> as the Worker Queue Credentials</li>
+                    <li>Click <strong>Create Integration</strong></li>
+                    <li>Return here and retry trigger creation</li>
+                </ol>
+            </div>
+            
+            <div class="worker-modal-footer">
+                <button class="btn btn-secondary" onclick="closeWorkerModal()">
+                    <i class="fas fa-times"></i> Close
+                </button>
+                <button class="btn btn-primary" onclick="openToolchainInBrowser()">
+                    <i class="fas fa-external-link-alt"></i> Open Toolchain
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 </div>
 
 <style>
@@ -358,6 +439,7 @@
     padding: 1.5rem;
     cursor: pointer;
     transition: all 0.3s;
+    position: relative;
 }
 
 .selection-item:hover {
@@ -406,6 +488,191 @@
 }
 
 .log-entry.success {
+
+/* Worker Modal Styles */
+.worker-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.worker-modal-content {
+    background: white;
+    border-radius: 12px;
+    max-width: 800px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.worker-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid #e0e0e0;
+    background: #f8f9fa;
+    border-radius: 12px 12px 0 0;
+}
+
+.worker-modal-header h3 {
+    margin: 0;
+    color: #333;
+    font-size: 1.25rem;
+}
+
+.worker-modal-header h3 i {
+    color: #6366f1;
+    margin-right: 0.5rem;
+}
+
+.worker-modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #666;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.3s;
+}
+
+.worker-modal-close:hover {
+    background: #e0e0e0;
+    color: #333;
+}
+
+.worker-modal-body {
+    padding: 1.5rem;
+}
+
+.worker-modal-description {
+    margin-bottom: 1.5rem;
+    color: #666;
+    line-height: 1.6;
+}
+
+.worker-modal-description strong {
+    color: #6366f1;
+}
+
+.worker-info-grid {
+    display: grid;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.worker-info-item {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.worker-info-item label {
+    display: block;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.worker-info-item label i {
+    color: #6366f1;
+    margin-right: 0.5rem;
+}
+
+.worker-info-value {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.worker-info-value input {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+    background: white;
+}
+
+.btn-copy {
+    background: #6366f1;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-size: 0.875rem;
+}
+
+.btn-copy:hover {
+    background: #4f46e5;
+}
+
+.worker-instructions {
+    background: #eef2ff;
+    padding: 1.5rem;
+    border-radius: 8px;
+    border-left: 4px solid #6366f1;
+    margin-bottom: 1.5rem;
+}
+
+.worker-instructions h4 {
+    margin: 0 0 1rem 0;
+    color: #333;
+    font-size: 1rem;
+}
+
+.worker-instructions h4 i {
+    color: #6366f1;
+    margin-right: 0.5rem;
+}
+
+.worker-instructions ol {
+    margin: 0;
+    padding-left: 1.5rem;
+}
+
+.worker-instructions li {
+    margin-bottom: 0.5rem;
+    color: #666;
+    line-height: 1.6;
+}
+
+.worker-instructions a {
+    color: #6366f1;
+    text-decoration: none;
+}
+
+.worker-instructions a:hover {
+    text-decoration: underline;
+}
+
+.worker-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    padding: 1.5rem;
+    border-top: 1px solid #e0e0e0;
+    background: #f8f9fa;
+    border-radius: 0 0 12px 12px;
+}
     color: #10b981;
 }
 
