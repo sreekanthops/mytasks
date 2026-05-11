@@ -1,0 +1,662 @@
+{% extends "base.html" %}
+
+{% block title %}FCP Manager - Task Dashboard{% endblock %}
+
+{% block content %}
+<div class="fcp-wizard-container">
+    <!-- Progress Steps -->
+    <div class="wizard-progress">
+        <div class="step active" data-step="1">
+            <div class="step-number">1</div>
+            <div class="step-label">Mode</div>
+        </div>
+        <div class="step" data-step="2">
+            <div class="step-number">2</div>
+            <div class="step-label">Service</div>
+        </div>
+        <div class="step" data-step="3">
+            <div class="step-number">3</div>
+            <div class="step-label">Select</div>
+        </div>
+        <div class="step" data-step="4">
+            <div class="step-number">4</div>
+            <div class="step-label">Configure</div>
+        </div>
+        <div class="step" data-step="5">
+            <div class="step-number">5</div>
+            <div class="step-label">Execute</div>
+        </div>
+    </div>
+
+    <!-- Wizard Content -->
+    <div class="wizard-content">
+        <!-- Step 1: Mode Selection -->
+        <div class="wizard-step active" id="step-1">
+            <h2>Select Operation Mode</h2>
+            <p class="step-description">Choose what you want to do with FCP Manager</p>
+            
+            <div class="mode-selection">
+                <button class="mode-card" onclick="selectMode('trigger')">
+                    <i class="fas fa-play-circle"></i>
+                    <h3>Trigger Existing Pipeline</h3>
+                    <p>Execute an existing manual CD trigger</p>
+                    <ul>
+                        <li>Quick execution</li>
+                        <li>Review parameters</li>
+                        <li>Monitor logs</li>
+                    </ul>
+                </button>
+                
+                <button class="mode-card" onclick="selectMode('create')">
+                    <i class="fas fa-plus-circle"></i>
+                    <h3>Create New Trigger</h3>
+                    <p>Create a new manual CD trigger for a service</p>
+                    <ul>
+                        <li>Multi-DC support</li>
+                        <li>Auto-configuration</li>
+                        <li>Template-based</li>
+                    </ul>
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 2: Service Name -->
+        <div class="wizard-step" id="step-2">
+            <h2>Enter Service Name</h2>
+            <p class="step-description">Provide the name of the service you want to work with</p>
+            
+            <div class="form-group">
+                <label for="serviceName">Service Name:</label>
+                <input type="text" id="serviceName" class="form-control" 
+                       placeholder="e.g., snitch, log-alerts, cache-device-info">
+                <small>Enter the service name to search for its CD toolchain</small>
+            </div>
+            
+            <div id="serviceValidation" class="validation-message"></div>
+            
+            <div class="wizard-actions">
+                <button class="btn btn-secondary" onclick="previousStep()">
+                    <i class="fas fa-arrow-left"></i> Back
+                </button>
+                <button class="btn btn-primary" onclick="searchService()">
+                    Next <i class="fas fa-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 3: Toolchain/Trigger Selection -->
+        <div class="wizard-step" id="step-3">
+            <h2 id="step3Title">Select Toolchain</h2>
+            <p class="step-description" id="step3Description">Choose the toolchain to work with</p>
+            
+            <div id="selectionContent" class="selection-content">
+                <!-- Dynamic content will be loaded here -->
+            </div>
+            
+            <div class="wizard-actions">
+                <button class="btn btn-secondary" onclick="previousStep()">
+                    <i class="fas fa-arrow-left"></i> Back
+                </button>
+                <button class="btn btn-primary" onclick="nextStep()" id="step3NextBtn" disabled>
+                    Next <i class="fas fa-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 4: Configuration -->
+        <div class="wizard-step" id="step-4">
+            <h2 id="step4Title">Configuration</h2>
+            <p class="step-description" id="step4Description">Review and configure settings</p>
+            
+            <div id="configContent" class="config-content">
+                <!-- Dynamic configuration will be loaded here -->
+            </div>
+            
+            <div class="wizard-actions">
+                <button class="btn btn-secondary" onclick="previousStep()">
+                    <i class="fas fa-arrow-left"></i> Back
+                </button>
+                <button class="btn btn-success" onclick="executeAction()" id="executeBtn">
+                    <i class="fas fa-rocket"></i> Execute
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 5: Execution & Logs -->
+        <div class="wizard-step" id="step-5">
+            <h2>Execution</h2>
+            <p class="step-description">Operation in progress...</p>
+            
+            <div class="execution-status">
+                <div class="status-indicator">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span id="statusText">Initializing...</span>
+                </div>
+            </div>
+            
+            <div class="log-viewer">
+                <div class="log-header">
+                    <h3>Execution Logs</h3>
+                    <button class="btn btn-sm" onclick="clearLogs()">
+                        <i class="fas fa-trash"></i> Clear
+                    </button>
+                </div>
+                <div class="log-content" id="logContent">
+                    <div class="log-entry">Waiting for execution to start...</div>
+                </div>
+            </div>
+            
+            <div class="wizard-actions">
+                <button class="btn btn-secondary" onclick="resetWizard()">
+                    <i class="fas fa-redo"></i> Start Over
+                </button>
+                <button class="btn btn-primary" onclick="window.location.href='/fcp'" style="display:none;" id="doneBtn">
+                    <i class="fas fa-check"></i> Done
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.fcp-wizard-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.wizard-progress {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 3rem;
+    position: relative;
+}
+
+.wizard-progress::before {
+    content: '';
+    position: absolute;
+    top: 20px;
+    left: 10%;
+    right: 10%;
+    height: 2px;
+    background: #e0e0e0;
+    z-index: 0;
+}
+
+.step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    z-index: 1;
+}
+
+.step-number {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #e0e0e0;
+    color: #666;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+    transition: all 0.3s;
+}
+
+.step.active .step-number {
+    background: #6366f1;
+    color: white;
+}
+
+.step.completed .step-number {
+    background: #10b981;
+    color: white;
+}
+
+.step-label {
+    font-size: 0.875rem;
+    color: #666;
+}
+
+.step.active .step-label {
+    color: #6366f1;
+    font-weight: 600;
+}
+
+.wizard-content {
+    background: white;
+    border-radius: 12px;
+    padding: 2rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.wizard-step {
+    display: none;
+}
+
+.wizard-step.active {
+    display: block;
+    animation: fadeIn 0.3s;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.step-description {
+    color: #666;
+    margin-bottom: 2rem;
+}
+
+.mode-selection {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+    margin: 2rem 0;
+}
+
+.mode-card {
+    background: #f8f9fa;
+    border: 2px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.mode-card:hover {
+    border-color: #6366f1;
+    transform: translateY(-4px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.mode-card i {
+    font-size: 3rem;
+    color: #6366f1;
+    margin-bottom: 1rem;
+}
+
+.mode-card h3 {
+    margin: 1rem 0;
+    color: #333;
+}
+
+.mode-card p {
+    color: #666;
+    margin-bottom: 1rem;
+}
+
+.mode-card ul {
+    list-style: none;
+    padding: 0;
+    text-align: left;
+}
+
+.mode-card ul li {
+    padding: 0.5rem 0;
+    color: #666;
+}
+
+.mode-card ul li::before {
+    content: '✓ ';
+    color: #10b981;
+    font-weight: bold;
+}
+
+.form-group {
+    margin: 2rem 0;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: #333;
+}
+
+.form-control {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 1rem;
+    transition: border-color 0.3s;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #6366f1;
+}
+
+.wizard-actions {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid #e0e0e0;
+}
+
+.selection-content {
+    min-height: 200px;
+}
+
+.selection-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 1rem;
+    margin: 2rem 0;
+}
+
+.selection-item {
+    background: #f8f9fa;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 1.5rem;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.selection-item:hover {
+    border-color: #6366f1;
+}
+
+.selection-item.selected {
+    border-color: #6366f1;
+    background: #eef2ff;
+}
+
+.log-viewer {
+    margin: 2rem 0;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.log-header {
+    background: #f8f9fa;
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.log-header h3 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.log-content {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 1rem;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.log-entry {
+    padding: 0.25rem 0;
+    line-height: 1.5;
+}
+
+.log-entry.success {
+    color: #10b981;
+}
+
+.log-entry.error {
+    color: #ef4444;
+}
+
+.log-entry.warning {
+    color: #f59e0b;
+}
+
+.execution-status {
+    text-align: center;
+    padding: 2rem;
+    margin: 2rem 0;
+    background: #f8f9fa;
+    border-radius: 8px;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    font-size: 1.25rem;
+}
+
+.status-indicator i {
+    font-size: 2rem;
+    color: #6366f1;
+}
+
+.validation-message {
+    margin-top: 1rem;
+    padding: 1rem;
+    border-radius: 8px;
+    display: none;
+}
+
+.validation-message.error {
+    display: block;
+    background: #fee2e2;
+    color: #dc2626;
+    border: 1px solid #fca5a5;
+}
+
+.validation-message.success {
+    display: block;
+    background: #d1fae5;
+    color: #059669;
+    border: 1px solid #6ee7b7;
+}
+
+.config-content {
+    margin: 2rem 0;
+}
+
+.config-section {
+    margin-bottom: 2rem;
+}
+
+.config-section h3 {
+    margin-bottom: 1rem;
+    color: #333;
+}
+
+.config-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.75rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+}
+
+.config-label {
+    font-weight: 600;
+    color: #666;
+}
+
+.config-value {
+    color: #333;
+    font-family: 'Courier New', monospace;
+}
+
+/* Filter Section Styles */
+.filter-section {
+    margin-bottom: 2rem;
+    padding: 1.5rem;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+}
+
+.filter-group {
+    margin-bottom: 1rem;
+}
+
+.filter-group:last-child {
+    margin-bottom: 0;
+}
+
+.filter-group label {
+    display: block;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.btn-group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.btn-sm {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    border-radius: 6px;
+    border: 1px solid;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+}
+
+.btn-outline-primary {
+    background: white;
+    color: #6366f1;
+    border-color: #6366f1;
+}
+
+.btn-outline-primary:hover {
+    background: #6366f1;
+    color: white;
+}
+
+.btn-primary {
+    background: #6366f1;
+    color: white;
+    border-color: #6366f1;
+}
+
+.btn-outline-success {
+    background: white;
+    color: #10b981;
+    border-color: #10b981;
+}
+
+.btn-outline-success:hover {
+    background: #10b981;
+    color: white;
+}
+
+.btn-success {
+    background: #10b981;
+    color: white;
+    border-color: #10b981;
+}
+
+/* Parameter Grid Styles */
+.params-grid {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.param-item {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1rem;
+    transition: all 0.2s;
+}
+
+.param-item:hover {
+    border-color: #6366f1;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+}
+
+.param-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.param-name {
+    font-weight: 600;
+    color: #374151;
+    font-size: 0.875rem;
+}
+
+.param-type {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    background: #f3f4f6;
+    color: #6b7280;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+
+.param-value-container {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.param-input {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+}
+
+.param-input:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.param-input:readonly {
+    background: #f9fafb;
+    cursor: not-allowed;
+}
+
+.btn-edit {
+    padding: 0.5rem;
+    background: #6366f1;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+}
+
+.btn-edit:hover {
+    background: #4f46e5;
+}
+
+.btn-edit i {
+    font-size: 0.875rem;
+}
+</style>
+
+<script src="{{ url_for('static', filename='js/fcp-wizard.js') }}?v=8"></script>
+{% endblock %}

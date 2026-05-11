@@ -3,6 +3,8 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import requests
 import os
+import json
+import subprocess
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -112,6 +114,16 @@ def links_page():
 @app.route('/settings')
 def settings_page():
     return render_template('settings.html', active_page='settings')
+
+@app.route('/fcp')
+def fcp_page():
+    """FCP Manager - redirect to wizard"""
+    return redirect(url_for('fcp_wizard'))
+
+@app.route('/fcp/old')
+def fcp_page_old():
+    """Old FCP Manager page (modal-based)"""
+    return render_template('fcp.html', active_page='fcp')
 
 # Keep old dashboard route for backward compatibility
 @app.route('/dashboard')
@@ -1038,6 +1050,689 @@ def check_task_reminders():
         db.session.commit()
     
     return jsonify(due_reminders)
+
+
+# FCP Manager API endpoints
+@app.route('/api/fcp/trigger', methods=['POST'])
+def fcp_trigger_pipeline():
+    """Trigger FCP pipeline"""
+    import subprocess
+    data = request.json
+    
+    service_name = data.get('service_name')
+    mode = data.get('mode', '1')  # 1 = trigger, 2 = create
+    
+    if not service_name:
+        return jsonify({'error': 'Service name is required'}), 400
+    
+    try:
+        # Path to fcp_manager script
+        script_path = '/Users/sreekanthchityala/nettools/internal-scripts/fcp/fcp_manager.sh'
+        
+        # For mode 1 (trigger), pass service name as argument
+        if mode == '1':
+            cmd = ['bash', script_path, service_name]
+        else:
+            # For mode 2 (create), we'll need interactive input
+            return jsonify({'error': 'Create mode requires interactive terminal'}), 400
+        
+        # Execute the script
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minutes timeout
+        )
+        
+        return jsonify({
+            'success': result.returncode == 0,
+            'output': result.stdout,
+            'error': result.stderr if result.returncode != 0 else None
+        })
+    
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'Script execution timed out'}), 408
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/fcp/history')
+def fcp_get_history():
+    """Get FCP execution history"""
+    try:
+        history_file = os.path.expanduser('~/.fcp_manager_history')
+        if not os.path.exists(history_file):
+            return jsonify([])
+        
+        history = []
+        with open(history_file, 'r') as f:
+            for line in f:
+                parts = line.strip().split('|')
+                if len(parts) >= 5:
+                    history.append({
+                        'service': parts[0],
+                        'toolchain_guid': parts[1],
+                        'toolchain_name': parts[2],
+                        'trigger_id': parts[3],
+                        'trigger_name': parts[4]
+                    })
+        
+        return jsonify(history[:10])  # Return last 10
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/fcp/dcs')
+def fcp_get_dcs():
+    """Get list of available DCs"""
+    dcs = [
+        {'id': 'syd05', 'name': 'Sydney 05', 'full': 'syd0501'},
+        {'id': 'lon02', 'name': 'London 02', 'full': 'lon0201'},
+        {'id': 'lon05', 'name': 'London 05', 'full': 'lon0501'},
+        {'id': 'lon06', 'name': 'London 06', 'full': 'lon0601'},
+        {'id': 'osa23', 'name': 'Osaka 23', 'full': 'osa2301'},
+        {'id': 'syd04', 'name': 'Sydney 04', 'full': 'syd0401'}
+    ]
+    return jsonify(dcs)
+
+# New FCP Wizard API Endpoints
+@app.route('/fcp/wizard')
+def fcp_wizard():
+    """FCP Manager Wizard Page"""
+    return render_template('fcp_wizard.html', active_page='fcp')
+
+@app.route('/api/fcp/search-toolchains', methods=['POST'])
+def fcp_search_toolchains():
+    """Search for toolchains by service name"""
+    try:
+        data = request.get_json()
+        service_name = data.get('service_name', '').strip()
+        
+        if not service_name:
+            return jsonify({'success': False, 'error': 'Service name is required'})
+        
+        # Use IBM Cloud CLI to search for toolchains (same as bash script)
+        import subprocess
+        import json as json_module
+        
+        # Get all toolchains and filter with jq (same as bash script)
+        cmd = f'''ibmcloud dev toolchains --output json | jq -r --arg service "{service_name}" '
+            .items[]
+            | select(.name | contains($service))
+            | select(.name | contains("-cd"))
+            | {{name, toolchain_guid}}
+        ' | jq -s .'''
+        
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        
+        if result.returncode != 0 or not result.stdout.strip():
+            return jsonify({'success': False, 'error': 'No toolchains found'})
+        
+        # Parse JSON output
+        toolchains = json_module.loads(result.stdout)
+        
+        if not toolchains:
+            return jsonify({'success': False, 'error': 'No toolchains found'})
+        
+        return jsonify({'success': True, 'toolchains': toolchains})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/fcp/get-triggers', methods=['POST'])
+def fcp_get_triggers():
+    """Get triggers for a toolchain"""
+    try:
+        data = request.get_json()
+        toolchain_guid = data.get('toolchain_guid')
+        
+        print(f"DEBUG: Getting triggers for toolchain: {toolchain_guid}")
+        
+        if not toolchain_guid:
+            return jsonify({'success': False, 'error': 'Toolchain GUID is required'})
+        
+        # Get IAM token
+        iam_token = get_iam_token()
+        if not iam_token:
+            return jsonify({'success': False, 'error': 'Failed to get IAM token'})
+        
+        # Get pipeline ID
+        pipeline_id = get_pipeline_id(toolchain_guid, iam_token)
+        if not pipeline_id:
+            return jsonify({'success': False, 'error': 'Failed to get pipeline ID'})
+        
+        print(f"DEBUG: Pipeline ID: {pipeline_id}")
+        
+        # Get triggers via API
+        url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}/triggers"
+        headers = {
+            'Authorization': f'Bearer {iam_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        
+        if response.status_code != 200:
+            print(f"DEBUG: API error: {response.status_code} - {response.text}")
+            return jsonify({'success': False, 'error': f'API error: {response.status_code}'})
+        
+        # Extract manual triggers
+        triggers_data = response.json()
+        triggers = []
+        
+        for trigger in triggers_data.get('triggers', []):
+            if trigger.get('type') == 'manual':
+                triggers.append({
+                    'id': trigger.get('id'),
+                    'name': trigger.get('name'),
+                    'type': trigger.get('type'),
+                    'enabled': trigger.get('enabled', True)
+                })
+        
+        print(f"DEBUG: Found {len(triggers)} manual triggers")
+        
+        return jsonify({'success': True, 'triggers': triggers})
+        
+    except Exception as e:
+        import traceback
+        print(f"DEBUG: Exception: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/fcp/get-trigger-properties', methods=['POST'])
+def fcp_get_trigger_properties():
+    """Get trigger properties for editing"""
+    try:
+        data = request.get_json()
+        toolchain_guid = data.get('toolchain_guid')
+        trigger_id = data.get('trigger_id')
+        
+        print(f"DEBUG: Getting properties for trigger: {trigger_id}")
+        
+        if not toolchain_guid or not trigger_id:
+            return jsonify({'success': False, 'error': 'Toolchain GUID and Trigger ID are required'})
+        
+        # Get IAM token
+        iam_token = get_iam_token()
+        if not iam_token:
+            return jsonify({'success': False, 'error': 'Failed to get IAM token'})
+        
+        # Get pipeline ID
+        pipeline_id = get_pipeline_id(toolchain_guid, iam_token)
+        if not pipeline_id:
+            return jsonify({'success': False, 'error': 'Failed to get pipeline ID'})
+        
+        # Get trigger details via API
+        url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}/triggers/{trigger_id}"
+        headers = {
+            'Authorization': f'Bearer {iam_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        
+        if response.status_code != 200:
+            print(f"DEBUG: API error: {response.status_code} - {response.text}")
+            return jsonify({'success': False, 'error': f'API error: {response.status_code}'})
+        
+        trigger_data = response.json()
+        properties = trigger_data.get('properties', [])
+        
+        # Format properties for frontend
+        formatted_properties = []
+        for prop in properties:
+            formatted_properties.append({
+                'name': prop.get('name'),
+                'value': prop.get('value', ''),
+                'type': prop.get('type', 'text'),
+                'enum': prop.get('enum', []),
+                'path': prop.get('path', '')
+            })
+        
+        print(f"DEBUG: Found {len(formatted_properties)} properties")
+        
+        return jsonify({
+            'success': True,
+            'properties': formatted_properties,
+            'trigger_name': trigger_data.get('name'),
+            'pipeline_id': pipeline_id
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"DEBUG: Exception: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/fcp/trigger-pipeline', methods=['POST'])
+def fcp_trigger_pipeline_wizard():
+    """Trigger a pipeline with optional property overrides"""
+    try:
+        data = request.get_json()
+        toolchain_guid = data.get('toolchain_guid')
+        trigger_id = data.get('trigger_id')
+        property_overrides = data.get('properties', {})
+        
+        print(f"DEBUG: Triggering pipeline - trigger_id: {trigger_id}")
+        print(f"DEBUG: Property overrides: {property_overrides}")
+        
+        if not toolchain_guid or not trigger_id:
+            return jsonify({'success': False, 'error': 'Toolchain GUID and Trigger ID are required'})
+        
+        # Get IAM token
+        iam_token = get_iam_token()
+        if not iam_token:
+            return jsonify({'success': False, 'error': 'Failed to get IAM token'})
+        
+        # Get pipeline ID
+        pipeline_id = get_pipeline_id(toolchain_guid, iam_token)
+        if not pipeline_id:
+            return jsonify({'success': False, 'error': 'Failed to get pipeline ID'})
+        
+        # Get trigger details to get the trigger name
+        trigger_url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}/triggers/{trigger_id}"
+        headers = {
+            'Authorization': f'Bearer {iam_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        trigger_response = requests.get(trigger_url, headers=headers, timeout=30)
+        if trigger_response.status_code != 200:
+            return jsonify({'success': False, 'error': 'Failed to get trigger details'})
+        
+        trigger_data = trigger_response.json()
+        trigger_name = trigger_data.get('name')
+        
+        print(f"DEBUG: Trigger name: {trigger_name}")
+        
+        # Trigger pipeline via API
+        run_url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}/pipeline_runs"
+        
+        # Build payload with trigger name
+        payload = {
+            'trigger': {
+                'name': trigger_name
+            }
+        }
+        
+        # Add property overrides if any
+        if property_overrides:
+            payload['trigger']['properties'] = property_overrides
+        
+        print(f"DEBUG: Trigger payload: {json.dumps(payload, indent=2)}")
+        
+        response = requests.post(run_url, headers=headers, json=payload, timeout=30)
+        
+        if response.status_code not in [200, 201]:
+            print(f"DEBUG: API error: {response.status_code} - {response.text}")
+            return jsonify({'success': False, 'error': f'API error: {response.status_code}', 'details': response.text})
+        
+        run_data = response.json()
+        run_id = run_data.get('id')
+        
+        # Build pipeline run URL
+        pipeline_url = f"https://cloud.ibm.com/devops/pipelines/tekton/{pipeline_id}/runs/{run_id}"
+        
+        print(f"DEBUG: Pipeline triggered successfully - run_id: {run_id}")
+        
+        return jsonify({
+            'success': True,
+            'run_id': run_id,
+            'url': pipeline_url,
+            'message': 'Pipeline triggered successfully'
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"DEBUG: Exception: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ============================================================================
+# FCP Manager Helper Functions (Python implementation)
+# ============================================================================
+
+def get_iam_token():
+    """Get IBM Cloud IAM token"""
+    try:
+        result = subprocess.run(
+            ['ibmcloud', 'iam', 'oauth-tokens', '--output', 'json'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.returncode == 0:
+            tokens = json.loads(result.stdout)
+            return tokens.get('iam_token', '').replace('Bearer ', '')
+        return None
+    except Exception as e:
+        print(f"Error getting IAM token: {e}")
+        return None
+
+def get_pipeline_id(toolchain_guid, iam_token):
+    """Get pipeline ID from toolchain"""
+    try:
+        result = subprocess.run(
+            ['ibmcloud', 'dev', 'toolchain-get', toolchain_guid, '--output', 'json'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.returncode == 0:
+            toolchain_data = json.loads(result.stdout)
+            services = toolchain_data.get('items', [{}])[0].get('services', [])
+            for service in services:
+                if service.get('service_id') == 'pipeline':
+                    return service.get('instance_id')
+        return None
+    except Exception as e:
+        print(f"Error getting pipeline ID: {e}")
+        return None
+
+def fetch_template_trigger(iam_token, dc):
+    """Fetch template trigger from log-alerts"""
+    try:
+        log_alerts_pipeline_id = "a00fb3e6-c0ca-4e93-ba45-8f32c395790b"
+        template_dc = "syd05"
+        
+        url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{log_alerts_pipeline_id}/triggers"
+        headers = {
+            'Authorization': f'Bearer {iam_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        print(f"DEBUG: Fetching template from {url}")
+        response = requests.get(url, headers=headers, timeout=30)
+        print(f"DEBUG: Response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            triggers = response.json().get('triggers', [])
+            print(f"DEBUG: Found {len(triggers)} triggers")
+            # Pattern is "FCP-prod syd05" not "FCP-prod (syd05)"
+            pattern = f"FCP-prod {template_dc}"
+            print(f"DEBUG: Looking for pattern: {pattern}")
+            for trigger in triggers:
+                trigger_name = trigger.get('name', '')
+                if pattern in trigger_name:
+                    print(f"DEBUG: Found matching template trigger: {trigger_name}")
+                    return trigger
+            print(f"DEBUG: No matching trigger found for pattern '{pattern}'")
+        else:
+            print(f"DEBUG: API error: {response.text}")
+        return None
+    except Exception as e:
+        print(f"Error fetching template trigger: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def get_worker_config(toolchain_guid, iam_token):
+    """Get worker configuration from toolchain"""
+    try:
+        result = subprocess.run(
+            ['ibmcloud', 'dev', 'toolchain-get', toolchain_guid, '--output', 'json'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.returncode == 0:
+            toolchain_data = json.loads(result.stdout)
+            services = toolchain_data.get('items', [{}])[0].get('services', [])
+            for service in services:
+                if service.get('service_id') == 'private_worker':
+                    return {
+                        'id': service.get('instance_id'),
+                        'name': service.get('parameters', {}).get('name', 'worker')
+                    }
+        return None
+    except Exception as e:
+        print(f"Error getting worker config: {e}")
+        return None
+
+def get_secrets_manager_integration(toolchain_guid, iam_token):
+    """Get Secrets Manager integration ID from toolchain"""
+    try:
+        result = subprocess.run(
+            ['ibmcloud', 'dev', 'toolchain-get', toolchain_guid, '--output', 'json'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.returncode == 0:
+            toolchain_data = json.loads(result.stdout)
+            services = toolchain_data.get('items', [{}])[0].get('services', [])
+            for service in services:
+                # Look for Secrets Manager integration (prod-sm)
+                if service.get('service_id') == 'secretsmanager':
+                    service_name = service.get('parameters', {}).get('name', '')
+                    if 'prod-sm' in service_name.lower():
+                        return service.get('instance_id')
+        return None
+    except Exception as e:
+        print(f"Error getting Secrets Manager integration: {e}")
+        return None
+
+def detect_pipeline_config_branch(pipeline_id, iam_token):
+    """Detect pipeline-config-branch from existing triggers"""
+    try:
+        url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}/triggers"
+        headers = {
+            'Authorization': f'Bearer {iam_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        if response.status_code == 200:
+            triggers = response.json().get('triggers', [])
+            for trigger in triggers:
+                if 'FCP' in trigger.get('name', ''):
+                    properties = trigger.get('properties', [])
+                    for prop in properties:
+                        if prop.get('name') == 'pipeline-config-branch':
+                            return prop.get('value', 'master')
+            return 'master'  # Default
+        return 'master'
+    except Exception as e:
+        print(f"Error detecting pipeline-config-branch: {e}")
+        return 'master'
+
+def create_trigger_payload(trigger_name, template_trigger, worker_config, dc, pipeline_config_branch, sm_integration_id=None):
+    """Create trigger payload with hardcoded defaults"""
+    
+    # DC mapping for cluster names
+    dc_cluster_map = {
+        'syd05': 'rkeranchersyd0501.softlayer.local',
+        'syd04': 'rkeranchersyd0401.softlayer.local',
+        'lon02': 'rkerancherlon0201.softlayer.local',
+        'lon05': 'rkerancherlon0501.softlayer.local',
+        'lon06': 'rkerancherlon0601.softlayer.local',
+        'osa23': 'rkerancherosa2301.softlayer.local'
+    }
+    
+    dc_downstream_map = {
+        'syd05': 'rkecontrolsyd0501',
+        'syd04': 'rkecontrolsyd0401',
+        'lon02': 'rkecontrollon0201',
+        'lon05': 'rkecontrollon0501',
+        'lon06': 'rkecontrollon0601',
+        'osa23': 'rkecontrolosa2301'
+    }
+    
+    # Build properties list
+    properties = [
+        {'name': 'classic-user-creds', 'value': 'oculus-classic-production-fid', 'type': 'secure'},
+        {'name': 'fcp_cluster', 'value': dc_cluster_map.get(dc, 'rkeranchersyd0501.softlayer.local'), 'type': 'text'},
+        {'name': 'fcp_downstream_cluster', 'value': dc_downstream_map.get(dc, 'rkecontrolsyd0501'), 'type': 'text'},
+        {'name': 'k8_replacement_list', 'value': f'auth/k8s-cluster-dc::>auth/k8s-cluster-{dc}01', 'type': 'text'},
+        {'name': 'namespace', 'value': 'network-monitoring', 'type': 'text'},
+        {'name': 'pipeline-config-branch', 'value': 'fcp-classic-pipeline', 'type': 'text'},
+        {'name': 'repo-branch', 'value': 'fcp-dev', 'type': 'text'},
+        {'name': 'sm-secret-grp', 'value': 'classic', 'type': 'text'},
+        {'name': 'target-environment', 'value': 'fcp-dev', 'type': 'text'},
+        {'name': 'vault-token', 'value': 'fcp-dal14-vault-token', 'type': 'secure'},
+        {'name': 'vault_addr_url', 'value': 'http://172.27.21.98:8200', 'type': 'text'}
+    ]
+    
+    # Add Secrets Manager integration if available
+    if sm_integration_id:
+        properties.append({
+            'name': 'nettools-sm',
+            'value': sm_integration_id,
+            'type': 'integration'
+        })
+    
+    # Create trigger with hardcoded defaults
+    new_trigger = {
+        'name': trigger_name,
+        'type': 'manual',
+        'event_listener': 'dev-mode-cd-listener',
+        'worker': {
+            'id': worker_config['id']
+        },
+        'properties': properties,
+        'enabled': True
+    }
+    
+    return new_trigger
+
+def post_trigger(pipeline_id, trigger_payload, iam_token):
+    """Post new trigger to pipeline"""
+    try:
+        url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}/triggers"
+        headers = {
+            'Authorization': f'Bearer {iam_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.post(url, headers=headers, json=trigger_payload, timeout=30)
+        if response.status_code in [200, 201]:
+            return response.json()
+        else:
+            print(f"Error posting trigger: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        print(f"Error posting trigger: {e}")
+        return None
+
+@app.route('/api/fcp/create-trigger', methods=['POST'])
+def fcp_create_trigger_wizard():
+    """Create a new trigger using Python/IBM Cloud API"""
+    try:
+        data = request.get_json()
+        print(f"DEBUG: Received data: {data}")  # Debug log
+        
+        service_name = data.get('service_name')
+        dc = data.get('dc')
+        toolchain_guid = data.get('toolchain_guid')
+        
+        print(f"DEBUG: service_name={service_name}, dc={dc}, toolchain_guid={toolchain_guid}")  # Debug log
+        
+        if not service_name or not dc or not toolchain_guid:
+            return jsonify({
+                'success': False,
+                'error': f'Missing required fields - service_name: {service_name}, dc: {dc}, toolchain_guid: {toolchain_guid}'
+            })
+        
+        # Get IAM token
+        iam_token = get_iam_token()
+        if not iam_token:
+            return jsonify({'success': False, 'error': 'Failed to get IAM token'})
+        
+        # Get pipeline ID
+        pipeline_id = get_pipeline_id(toolchain_guid, iam_token)
+        if not pipeline_id:
+            return jsonify({'success': False, 'error': 'Failed to get pipeline ID'})
+        
+        # Get worker configuration
+        worker_config = get_worker_config(toolchain_guid, iam_token)
+        if not worker_config:
+            return jsonify({'success': False, 'error': 'No worker found in toolchain'})
+        
+        # Get Secrets Manager integration
+        sm_integration_id = get_secrets_manager_integration(toolchain_guid, iam_token)
+        if not sm_integration_id:
+            print("Warning: Secrets Manager integration not found, trigger may fail")
+        
+        # Create the trigger with hardcoded defaults
+        trigger_name = f"Manual CD Trigger - {service_name} - FCP-prod {dc}"
+        new_trigger = create_trigger_payload(
+            trigger_name,
+            None,  # No template needed
+            worker_config,
+            dc,
+            None,  # No pipeline_config_branch needed
+            sm_integration_id  # Pass SM integration ID
+        )
+        
+        # Debug: Print the trigger payload
+        print(f"DEBUG: Trigger payload: {json.dumps(new_trigger, indent=2)}")
+        
+        # Post the trigger
+        result = post_trigger(pipeline_id, new_trigger, iam_token)
+        
+        if result:
+            return jsonify({
+                'success': True,
+                'trigger_id': result.get('id'),
+                'trigger_name': result.get('name'),
+                'message': f'Trigger created successfully for {dc}'
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Failed to create trigger'})
+        
+    except Exception as e:
+        import traceback
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()})
+
+@app.route('/api/fcp/open-terminal', methods=['POST'])
+def fcp_open_terminal():
+    """Open terminal with FCP Manager script"""
+    try:
+        data = request.get_json()
+        script_path = data.get('script_path', '/Users/sreekanthchityala/nettools/internal-scripts/fcp/fcp_manager.sh')
+        
+        # Open Terminal.app on macOS
+        import subprocess
+        cmd = f"osascript -e 'tell application \"Terminal\" to do script \"cd ~ && bash {script_path}\"'"
+        subprocess.Popen(cmd, shell=True)
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+        
+        if 'created' in result.stdout.lower() or 'success' in result.stdout.lower():
+            return jsonify({
+                'success': True,
+                'output': result.stdout,
+                'dc': dc
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to create trigger',
+                'output': result.stdout + result.stderr
+            })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/fcp/check-auth', methods=['GET'])
+def fcp_check_auth():
+    """Check if user is authenticated with IBM Cloud"""
+    try:
+        import subprocess
+        
+        # Check IBM Cloud login status
+        result = subprocess.run(['ibmcloud', 'target'], capture_output=True, text=True)
+        
+        if result.returncode == 0 and 'logged in' in result.stdout.lower():
+            return jsonify({'success': True, 'authenticated': True})
+        else:
+            return jsonify({'success': True, 'authenticated': False})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 if __name__ == '__main__':
