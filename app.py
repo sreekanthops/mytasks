@@ -1612,6 +1612,45 @@ def get_worker_config(toolchain_guid, iam_token, dc=None):
         print(f"Error getting worker config: {e}")
         return None
 
+def create_worker_integration(toolchain_guid, iam_token, dc, service_name):
+    """Create a new private worker integration in the toolchain"""
+    try:
+        worker_name = f"FCP-{dc.upper()}-{service_name.upper()}-TEKTON-CDWORKER"
+        print(f"DEBUG: Creating worker: {worker_name}")
+        
+        # Create worker using IBM Cloud CLI
+        result = subprocess.run(
+            [
+                'ibmcloud', 'dev', 'toolchain-service-create',
+                toolchain_guid,
+                '--service-id', 'private_worker',
+                '--parameters', json.dumps({
+                    'name': worker_name,
+                    'worker_queue_identifier': worker_name.lower(),
+                    'worker_queue_credentials': ''
+                }),
+                '--output', 'json'
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        if result.returncode == 0:
+            worker_data = json.loads(result.stdout)
+            print(f"DEBUG: Worker created successfully: {worker_data}")
+            return {
+                'id': worker_data.get('instance_id'),
+                'name': worker_name
+            }
+        else:
+            print(f"ERROR: Failed to create worker: {result.stderr}")
+            return None
+            
+    except Exception as e:
+        print(f"Error creating worker integration: {e}")
+        return None
+
 def get_secrets_manager_integration(toolchain_guid, iam_token):
     """Get Secrets Manager integration ID from toolchain"""
     try:
@@ -1769,7 +1808,12 @@ def fcp_create_trigger_wizard():
         # Get worker configuration for specific DC
         worker_config = get_worker_config(toolchain_guid, iam_token, dc)
         if not worker_config:
-            return jsonify({'success': False, 'error': f'Worker not found: fcp-{dc}-nettools-cd-worker. Please create the worker first.'})
+            # Worker not found, try to create it
+            print(f"DEBUG: Worker fcp-{dc}-nettools-cd-worker not found, creating new worker...")
+            worker_config = create_worker_integration(toolchain_guid, iam_token, dc, service_name)
+            if not worker_config:
+                return jsonify({'success': False, 'error': f'Failed to create worker: FCP-{dc.upper()}-{service_name.upper()}-TEKTON-CDWORKER'})
+            print(f"DEBUG: Worker created successfully: {worker_config}")
         
         # Get Secrets Manager integration
         sm_integration_id = get_secrets_manager_integration(toolchain_guid, iam_token)
