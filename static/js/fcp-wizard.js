@@ -85,6 +85,7 @@ function resetWizard() {
         toolchain: null,
         trigger: null,
         dcs: [],
+        customDCs: [],
         config: {},
         envFilter: 'all',
         typeFilter: 'deploy'
@@ -229,6 +230,7 @@ function loadStep3Content() {
         
     } else if (wizardData.mode === 'create') {
         // Show DC selection for create mode
+        console.log('Showing DC selection for create mode');
         title.textContent = 'Select Data Centers';
         description.textContent = 'Choose one or more DCs to create triggers for';
         
@@ -251,8 +253,31 @@ function loadStep3Content() {
                 </div>
             `;
         });
+        
+        // Add custom DC option
+        html += `
+            <div class="selection-item" onclick="showCustomDCModal()" style="border: 2px dashed #6366f1; background: #f0f9ff;">
+                <h4><i class="fas fa-plus-circle"></i> Add Custom DC</h4>
+                <p>Enter custom DC code</p>
+                <small>e.g., dal10, wdc04</small>
+            </div>
+        `;
+        
         html += '</div>';
+        
+        // Show selected custom DCs if any
+        if (wizardData.customDCs && wizardData.customDCs.length > 0) {
+            html += '<div style="margin-top: 1rem; padding: 1rem; background: #f0f9ff; border-radius: 8px;">';
+            html += '<strong>Custom DCs:</strong> ';
+            wizardData.customDCs.forEach(dc => {
+                html += `<span style="display: inline-block; margin: 0.25rem; padding: 0.5rem 1rem; background: #6366f1; color: white; border-radius: 6px;">${dc} <i class="fas fa-times" onclick="removeCustomDC('${dc}')" style="cursor: pointer; margin-left: 0.5rem;"></i></span>`;
+            });
+            html += '</div>';
+        }
+        
+        html += '<div style="margin-top: 1rem;">';
         html += '<button class="btn btn-secondary" onclick="selectAllDCs()">Select All DCs</button>';
+        html += '</div>';
         content.innerHTML = html;
     }
 }
@@ -457,6 +482,63 @@ function selectAllDCs() {
     });
     
     document.getElementById('step3NextBtn').disabled = false;
+}
+
+// Show custom DC modal
+function showCustomDCModal() {
+    const dcCode = prompt('Enter custom DC code (e.g., dal10, wdc04, fra02):');
+    
+    if (dcCode && dcCode.trim()) {
+        const cleanDC = dcCode.trim().toLowerCase();
+        
+        // Initialize customDCs array if not exists
+        if (!wizardData.customDCs) {
+            wizardData.customDCs = [];
+        }
+        
+        // Check if DC already added
+        if (wizardData.customDCs.includes(cleanDC)) {
+            alert(`DC "${cleanDC}" is already added!`);
+            return;
+        }
+        
+        // Add to custom DCs
+        wizardData.customDCs.push(cleanDC);
+        
+        // Add to selected DCs
+        if (!wizardData.dcs.includes(cleanDC)) {
+            wizardData.dcs.push(cleanDC);
+        }
+        
+        // Reload step 3 to show the new DC
+        loadStep3Content();
+        
+        // Enable next button
+        document.getElementById('step3NextBtn').disabled = false;
+        
+        console.log('Added custom DC:', cleanDC);
+        console.log('Current DCs:', wizardData.dcs);
+    }
+}
+
+// Remove custom DC
+function removeCustomDC(dcCode) {
+    if (!wizardData.customDCs) return;
+    
+    // Remove from custom DCs
+    wizardData.customDCs = wizardData.customDCs.filter(dc => dc !== dcCode);
+    
+    // Remove from selected DCs
+    wizardData.dcs = wizardData.dcs.filter(dc => dc !== dcCode);
+    
+    // Reload step 3
+    loadStep3Content();
+    
+    // Update next button state
+    document.getElementById('step3NextBtn').disabled = wizardData.dcs.length === 0;
+    
+    console.log('Removed custom DC:', dcCode);
+    console.log('Current DCs:', wizardData.dcs);
 }
 
 // Load Step 4 content (Configuration)
