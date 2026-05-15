@@ -121,52 +121,154 @@ source venv/bin/activate
 venv\Scripts\activate
 ```
 
-### 3. Install Dependencies
+### 3. Install PostgreSQL (Recommended for Production)
+
+#### macOS (using Homebrew):
 ```bash
-pip install -r requirements.txt
+# Install PostgreSQL
+brew install postgresql@14
+
+# Start PostgreSQL service
+brew services start postgresql@14
+
+# Verify installation
+psql --version
 ```
 
-### 4. Set Up Environment Variables
+#### Linux (Ubuntu/Debian):
 ```bash
-# Copy the example file
-cp .env.example .env
+# Update package list
+sudo apt update
 
-# Edit .env and add your configuration:
-SECRET_KEY=your-secret-key-here
-DATABASE_URL=postgresql://user:password@localhost:5432/mytasks  # or sqlite:///mytasks.db
-HOST=127.0.0.1  # Localhost only for security
-PORT=5000
+# Install PostgreSQL
+sudo apt install postgresql postgresql-contrib
+
+# Start PostgreSQL service
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# Verify installation
+psql --version
 ```
 
-### 5. Create PostgreSQL Database (if using PostgreSQL)
+#### Windows:
+1. Download PostgreSQL installer from https://www.postgresql.org/download/windows/
+2. Run the installer and follow the setup wizard
+3. Remember the password you set for the `postgres` user
+4. Add PostgreSQL bin directory to PATH (usually `C:\Program Files\PostgreSQL\14\bin`)
+
+### 4. Create PostgreSQL Database
 ```bash
-# Create database
+# Option 1: Using createdb command (macOS/Linux)
 createdb mytasks
 
-# Or using psql
+# Option 2: Using psql
 psql -U postgres
+# Then in psql prompt:
+CREATE DATABASE mytasks;
+\q
+
+# Option 3: For Windows (if postgres user has password)
+psql -U postgres -W
+# Enter password when prompted, then:
 CREATE DATABASE mytasks;
 \q
 ```
 
-### 6. Run Database Migrations
+**Note**: For development/testing, you can use SQLite instead (skip PostgreSQL installation):
 ```bash
-# Run all migrations
+# SQLite requires no installation, just set in .env:
+DATABASE_URL=sqlite:///mytasks.db
+```
+
+### 5. Install Python Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 6. Set Up Environment Variables
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env and configure your settings:
+nano .env  # or use any text editor
+```
+
+**Required Configuration in `.env`:**
+```bash
+# Application Settings
+SECRET_KEY=your-random-secret-key-here-change-this
+HOST=127.0.0.1
+PORT=5000
+
+# Database Configuration
+# For PostgreSQL (recommended):
+DATABASE_URL=postgresql://postgres:your_password@localhost:5432/mytasks
+
+# OR for SQLite (development only):
+# DATABASE_URL=sqlite:///mytasks.db
+
+# Optional: IBM Cloud (for Pipelines Manager)
+# IBM_CLOUD_API_KEY=your-ibm-cloud-api-key
+
+# Optional: GitHub Integration
+# GITHUB_TOKEN=your-github-personal-access-token
+# GITHUB_USERNAME=your-github-username
+
+# Optional: Jira Integration
+# JIRA_URL=https://your-domain.atlassian.net
+# JIRA_EMAIL=your-email@example.com
+# JIRA_API_TOKEN=your-jira-api-token
+# JIRA_PROJECT_KEY=PROJ
+```
+
+**How to get configuration values:**
+- **SECRET_KEY**: Generate with `python -c "import secrets; print(secrets.token_hex(32))"`
+- **DATABASE_URL**:
+  - PostgreSQL: `postgresql://username:password@localhost:5432/mytasks`
+  - SQLite: `sqlite:///mytasks.db` (relative path) or `sqlite:////absolute/path/to/mytasks.db`
+- **IBM_CLOUD_API_KEY**: Get from https://cloud.ibm.com/iam/apikeys
+- **GITHUB_TOKEN**: Generate from https://github.com/settings/tokens (for public) or https://github.ibm.com/settings/tokens (for IBM)
+- **JIRA_API_TOKEN**: Generate from https://id.atlassian.com/manage-profile/security/api-tokens
+
+### 7. Run Database Migrations
+```bash
+# Run all migrations in order
 python migrate_mute_until.py
 python migrate_task_fields.py
 python migrate_task_reminders.py
 python migrate_jira_settings.py
 ```
 
-### 7. Start the Application
+**Note**: If you encounter errors, ensure:
+- PostgreSQL is running: `pg_isready` (macOS/Linux) or check Services (Windows)
+- Database exists: `psql -U postgres -l | grep mytasks`
+- DATABASE_URL in `.env` is correct
+
+### 8. Start the Application
 ```bash
 python app.py
 ```
 
-### 8. Open in Browser
+You should see:
+```
+ * Running on http://127.0.0.1:5000
+ * Press CTRL+C to quit
+```
+
+### 9. Open in Browser
 ```
 http://localhost:5000
 ```
+
+**First-time setup checklist:**
+- ✅ PostgreSQL installed and running
+- ✅ Database `mytasks` created
+- ✅ `.env` file configured with DATABASE_URL
+- ✅ All migrations completed successfully
+- ✅ Application started without errors
+- ✅ Browser opens to dashboard
 
 ## 🎤 Voice Assistant Setup
 
