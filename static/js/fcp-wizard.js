@@ -1,7 +1,8 @@
-// FCP Manager Wizard JavaScript
+// Pipelines Wizard JavaScript
 let currentStep = 1;
 let wizardData = {
     mode: null,
+    pipelineType: null,  // 'ci' or 'cd'
     serviceName: null,
     toolchain: null,
     trigger: null,
@@ -13,14 +14,36 @@ let wizardData = {
 
 // Initialize wizard
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('FCP Wizard initialized');
+    console.log('Pipelines Wizard initialized');
 });
 
 // Mode selection
 function selectMode(mode) {
     wizardData.mode = mode;
     console.log('Mode selected:', mode);
-    nextStep();
+    
+    if (mode === 'trigger') {
+        // Show pipeline type selection (step 1.5)
+        document.getElementById('step-1').classList.remove('active');
+        document.getElementById('step-1-5').classList.add('active');
+    } else {
+        // For 'create' mode, go directly to step 2
+        nextStep();
+    }
+}
+
+// Pipeline type selection
+function selectPipelineType(type) {
+    wizardData.pipelineType = type;
+    console.log('Pipeline type selected:', type);
+    
+    // Hide step 1.5 and move to step 2
+    document.getElementById('step-1-5').classList.remove('active');
+    document.querySelector('.wizard-progress .step[data-step="1"]').classList.add('completed');
+    
+    currentStep = 2;
+    document.getElementById('step-2').classList.add('active');
+    document.querySelector('.wizard-progress .step[data-step="2"]').classList.add('active');
 }
 
 // Navigation functions
@@ -57,11 +80,14 @@ function resetWizard() {
     currentStep = 1;
     wizardData = {
         mode: null,
+        pipelineType: null,
         serviceName: null,
         toolchain: null,
         trigger: null,
         dcs: [],
-        config: {}
+        config: {},
+        envFilter: 'all',
+        typeFilter: 'deploy'
     };
     
     // Reset all steps
@@ -73,6 +99,12 @@ function resetWizard() {
     // Show first step
     document.getElementById('step-1').classList.add('active');
     document.querySelector('.wizard-progress .step[data-step="1"]').classList.add('active');
+    
+    // Clear any logs
+    const logContent = document.getElementById('logContent');
+    if (logContent) {
+        logContent.innerHTML = '<div class="log-entry">Waiting for execution to start...</div>';
+    }
 }
 
 // Search for service
@@ -91,7 +123,10 @@ async function searchService() {
         const response = await fetch('/api/fcp/search-toolchains', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ service_name: serviceName })
+            body: JSON.stringify({
+                service_name: serviceName,
+                pipeline_type: wizardData.pipelineType
+            })
         });
         
         const result = await response.json();
@@ -236,14 +271,15 @@ async function selectToolchain(index) {
     
     if (wizardData.mode === 'trigger') {
         // Load triggers for this toolchain
-        addLog(`Loading triggers for ${wizardData.toolchain.name}...`);
+        addLog(`Loading ${wizardData.pipelineType.toUpperCase()} triggers for ${wizardData.toolchain.name}...`);
         
         try {
             const response = await fetch('/api/fcp/get-triggers', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    toolchain_guid: wizardData.toolchain.toolchain_guid
+                    toolchain_guid: wizardData.toolchain.toolchain_guid,
+                    pipeline_type: wizardData.pipelineType
                 })
             });
             
@@ -271,37 +307,59 @@ function showTriggerSelection() {
     title.textContent = 'Select Trigger';
     description.textContent = 'Choose the trigger to execute';
     
-    // Filter buttons HTML
-    let html = `
-        <div class="filter-section">
-            <div class="filter-group">
-                <label>Environment:</label>
-                <div class="btn-group">
-                    <button class="btn btn-sm ${wizardData.envFilter === 'all' ? 'btn-primary' : 'btn-outline-primary'}"
-                            onclick="setEnvFilter('all')">All</button>
-                    <button class="btn btn-sm ${wizardData.envFilter === 'ngdc' ? 'btn-primary' : 'btn-outline-primary'}"
-                            onclick="setEnvFilter('ngdc')">NGDC</button>
-                    <button class="btn btn-sm ${wizardData.envFilter === 'fcp' ? 'btn-primary' : 'btn-outline-primary'}"
-                            onclick="setEnvFilter('fcp')">FCP</button>
-                </div>
-            </div>
-            <div class="filter-group">
-                <label>Trigger Type:</label>
-                <div class="btn-group">
-                    <button class="btn btn-sm ${wizardData.typeFilter === 'deploy' ? 'btn-success' : 'btn-outline-success'}"
-                            onclick="setTypeFilter('deploy')">Deploy</button>
-                    <button class="btn btn-sm ${wizardData.typeFilter === 'promotion' ? 'btn-success' : 'btn-outline-success'}"
-                            onclick="setTypeFilter('promotion')">Promotion</button>
-                </div>
-            </div>
-        </div>
-    `;
+    // Filter buttons HTML - different filters for CI vs CD
+    let html = '';
     
-    // Filter triggers based on selected filters
+    if (wizardData.pipelineType === 'cd') {
+        // CD pipeline filters
+        html = `
+            <div class="filter-section">
+                <div class="filter-group">
+                    <label>Environment:</label>
+                    <div class="btn-group">
+                        <button class="btn btn-sm ${wizardData.envFilter === 'all' ? 'btn-primary' : 'btn-outline-primary'}"
+                                onclick="setEnvFilter('all')">All</button>
+                        <button class="btn btn-sm ${wizardData.envFilter === 'ngdc' ? 'btn-primary' : 'btn-outline-primary'}"
+                                onclick="setEnvFilter('ngdc')">NGDC</button>
+                        <button class="btn btn-sm ${wizardData.envFilter === 'fcp' ? 'btn-primary' : 'btn-outline-primary'}"
+                                onclick="setEnvFilter('fcp')">FCP</button>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label>Trigger Type:</label>
+                    <div class="btn-group">
+                        <button class="btn btn-sm ${wizardData.typeFilter === 'deploy' ? 'btn-success' : 'btn-outline-success'}"
+                                onclick="setTypeFilter('deploy')">Deploy</button>
+                        <button class="btn btn-sm ${wizardData.typeFilter === 'promotion' ? 'btn-success' : 'btn-outline-success'}"
+                                onclick="setTypeFilter('promotion')">Promotion</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    } else {
+        // CI pipeline filters - simpler, just environment
+        html = `
+            <div class="filter-section">
+                <div class="filter-group">
+                    <label>Environment:</label>
+                    <div class="btn-group">
+                        <button class="btn btn-sm ${wizardData.envFilter === 'all' ? 'btn-primary' : 'btn-outline-primary'}"
+                                onclick="setEnvFilter('all')">All</button>
+                        <button class="btn btn-sm ${wizardData.envFilter === 'ngdc' ? 'btn-primary' : 'btn-outline-primary'}"
+                                onclick="setEnvFilter('ngdc')">NGDC</button>
+                        <button class="btn btn-sm ${wizardData.envFilter === 'fcp' ? 'btn-primary' : 'btn-outline-primary'}"
+                                onclick="setEnvFilter('fcp')">FCP</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Filter triggers based on selected filters and pipeline type
     const filteredTriggers = wizardData.triggers.filter(trigger => {
         const name = trigger.name.toLowerCase();
         
-        // Environment filter
+        // Environment filter (applies to both CI and CD)
         let envMatch = true;
         if (wizardData.envFilter === 'ngdc') {
             envMatch = !name.includes('fcp');
@@ -309,13 +367,16 @@ function showTriggerSelection() {
             envMatch = name.includes('fcp');
         }
         
-        // Type filter
+        // Type filter (only for CD pipelines)
         let typeMatch = true;
-        if (wizardData.typeFilter === 'promotion') {
-            typeMatch = name.includes('promotion');
-        } else if (wizardData.typeFilter === 'deploy') {
-            typeMatch = trigger.type === 'manual' && !name.includes('promotion');
+        if (wizardData.pipelineType === 'cd') {
+            if (wizardData.typeFilter === 'promotion') {
+                typeMatch = name.includes('promotion');
+            } else if (wizardData.typeFilter === 'deploy') {
+                typeMatch = trigger.type === 'manual' && !name.includes('promotion');
+            }
         }
+        // For CI pipelines, all triggers pass the type filter
         
         return envMatch && typeMatch;
     });
@@ -430,12 +491,12 @@ async function loadStep4Content() {
                 wizardData.globalProperties = result.global_properties || {};
                 wizardData.propertyOverrides = {};
                 
-                // Auto-set FCP branch parameters if this is an FCP trigger
+                // Auto-set FCP branch parameters if this is an FCP CD trigger
                 const isFCP = wizardData.trigger.name.toLowerCase().includes('fcp');
-                if (isFCP) {
+                if (isFCP && wizardData.pipelineType === 'cd') {
                     wizardData.propertyOverrides['one-pipeline-config-branch'] = 'fcp-classic-pipeline';
                     wizardData.propertyOverrides['pipeline-config-branch'] = 'fcp-classic-pipeline';
-                    console.log('FCP trigger detected - pre-setting both branches to fcp-classic-pipeline');
+                    console.log('FCP CD trigger detected - pre-setting both branches to fcp-classic-pipeline');
                 }
                 
                 let html = '<div class="config-section">';
@@ -456,65 +517,121 @@ async function loadStep4Content() {
                 `;
                 html += '</div>';
                 
-                // Add parameters section
+                // Add parameters section with search
                 html += '<div class="config-section" style="margin-top: 2rem;">';
-                html += '<h3>Pipeline Parameters <small style="color: #666;">(Click to edit)</small></h3>';
-                
-                // Always show one-pipeline-config-branch parameter
-                const onePipelineBranch = wizardData.propertyOverrides['one-pipeline-config-branch'] ||
-                                         result.global_properties?.['one-pipeline-config-branch'] ||
-                                         'fcp-classic-pipeline';
-                
-                html += '<div class="params-grid">';
+                html += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">';
+                html += '<h3 style="margin: 0;">Pipeline Parameters <small style="color: #666;">(Click to edit)</small></h3>';
                 html += `
-                    <div class="param-item" data-index="one-pipeline-branch">
-                        <div class="param-header">
-                            <span class="param-name">one-pipeline-config-branch</span>
-                            <span class="param-type" style="background: #0f62fe;">required</span>
-                        </div>
-                        <div class="param-value-container">
-                            <input type="text"
-                                   class="param-input"
-                                   id="param-one-pipeline-branch"
-                                   value="${onePipelineBranch}"
-                                   onchange="updateGlobalProperty('one-pipeline-config-branch', this.value)"
-                                   placeholder="fcp-classic-pipeline">
-                            <button class="btn-edit" onclick="focusGlobalParam('one-pipeline-branch')"><i class="fas fa-edit"></i></button>
-                        </div>
+                    <div style="position: relative; width: 300px;">
+                        <input type="text"
+                               id="paramSearch"
+                               class="param-input"
+                               placeholder="Search parameters..."
+                               onkeyup="filterParameters()"
+                               style="padding-left: 2.5rem;">
+                        <i class="fas fa-search" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: #666;"></i>
                     </div>
                 `;
+                html += '</div>';
                 
-                // Add trigger-specific properties (excluding global ones)
+                html += '<div class="params-grid" id="paramsGrid">';
                 
-                result.properties.forEach((prop, index) => {
-                    const isSecure = prop.type === 'secure' || prop.type === 'integration';
-                    // Use override value if set, otherwise use original value
-                    let displayValue;
-                    if (isSecure) {
-                        displayValue = '••••••••';
-                    } else {
-                        displayValue = wizardData.propertyOverrides[prop.name] || prop.value || '';
+                // Section 1: Trigger-specific parameters
+                if (result.properties && result.properties.length > 0) {
+                    html += '<div class="param-section-header" style="grid-column: 1/-1; padding: 0.5rem 0; border-bottom: 2px solid #e5e7eb; margin-bottom: 0.5rem;">';
+                    html += '<strong style="color: #374151;">Trigger Parameters</strong>';
+                    html += '</div>';
+                    
+                    result.properties.forEach((prop, index) => {
+                        const isSecure = prop.type === 'secure' || prop.type === 'integration';
+                        let displayValue;
+                        if (isSecure) {
+                            displayValue = '••••••••';
+                        } else {
+                            displayValue = wizardData.propertyOverrides[prop.name] || prop.value || '';
+                        }
+                        
+                        html += `
+                            <div class="param-item" data-param-name="${prop.name.toLowerCase()}" data-index="${index}">
+                                <div class="param-header">
+                                    <span class="param-name">${prop.name}</span>
+                                    <span class="param-type">${prop.type}</span>
+                                </div>
+                                <div class="param-value-container">
+                                    <input type="${isSecure ? 'password' : 'text'}"
+                                           class="param-input"
+                                           id="param-${index}"
+                                           value="${displayValue}"
+                                           ${isSecure ? 'readonly' : ''}
+                                           onchange="updateProperty(${index}, this.value)"
+                                           placeholder="${prop.name}">
+                                    ${!isSecure ? '<button class="btn-edit" onclick="focusParam(' + index + ')"><i class="fas fa-edit"></i></button>' : ''}
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+                
+                // Section 2: Global/Pipeline parameters
+                if (result.global_properties && Object.keys(result.global_properties).length > 0) {
+                    html += '<div class="param-section-header" style="grid-column: 1/-1; padding: 0.5rem 0; border-bottom: 2px solid #e5e7eb; margin: 1rem 0 0.5rem 0;">';
+                    html += '<strong style="color: #374151;">Global Pipeline Parameters</strong>';
+                    html += '</div>';
+                    
+                    // For CD pipelines, show one-pipeline-config-branch first if it exists
+                    if (wizardData.pipelineType === 'cd' && result.global_properties['one-pipeline-config-branch']) {
+                        const onePipelineBranch = wizardData.propertyOverrides['one-pipeline-config-branch'] ||
+                                                 result.global_properties['one-pipeline-config-branch'] ||
+                                                 'fcp-classic-pipeline';
+                        
+                        html += `
+                            <div class="param-item" data-param-name="one-pipeline-config-branch" data-index="global-one-pipeline-branch">
+                                <div class="param-header">
+                                    <span class="param-name">one-pipeline-config-branch</span>
+                                    <span class="param-type" style="background: #0f62fe;">global</span>
+                                </div>
+                                <div class="param-value-container">
+                                    <input type="text"
+                                           class="param-input"
+                                           id="param-global-one-pipeline-branch"
+                                           value="${onePipelineBranch}"
+                                           onchange="updateGlobalProperty('one-pipeline-config-branch', this.value)"
+                                           placeholder="fcp-classic-pipeline">
+                                    <button class="btn-edit" onclick="focusGlobalParam('global-one-pipeline-branch')"><i class="fas fa-edit"></i></button>
+                                </div>
+                            </div>
+                        `;
                     }
                     
-                    html += `
-                        <div class="param-item" data-index="${index}">
-                            <div class="param-header">
-                                <span class="param-name">${prop.name}</span>
-                                <span class="param-type">${prop.type}</span>
+                    // Show all other global properties
+                    Object.entries(result.global_properties).forEach(([name, value], index) => {
+                        // Skip one-pipeline-config-branch if already shown for CD
+                        if (wizardData.pipelineType === 'cd' && name === 'one-pipeline-config-branch') {
+                            return;
+                        }
+                        
+                        const displayValue = wizardData.propertyOverrides[name] || value || '';
+                        const globalIndex = `global-${index}`;
+                        
+                        html += `
+                            <div class="param-item" data-param-name="${name.toLowerCase()}" data-index="${globalIndex}">
+                                <div class="param-header">
+                                    <span class="param-name">${name}</span>
+                                    <span class="param-type" style="background: #6b7280;">global</span>
+                                </div>
+                                <div class="param-value-container">
+                                    <input type="text"
+                                           class="param-input"
+                                           id="param-${globalIndex}"
+                                           value="${displayValue}"
+                                           onchange="updateGlobalProperty('${name}', this.value)"
+                                           placeholder="${name}">
+                                    <button class="btn-edit" onclick="focusGlobalParam('${globalIndex}')"><i class="fas fa-edit"></i></button>
+                                </div>
                             </div>
-                            <div class="param-value-container">
-                                <input type="${isSecure ? 'password' : 'text'}"
-                                       class="param-input"
-                                       id="param-${index}"
-                                       value="${displayValue}"
-                                       ${isSecure ? 'readonly' : ''}
-                                       onchange="updateProperty(${index}, this.value)"
-                                       placeholder="${prop.name}">
-                                ${!isSecure ? '<button class="btn-edit" onclick="focusParam(' + index + ')"><i class="fas fa-edit"></i></button>' : ''}
-                            </div>
-                        </div>
-                    `;
-                });
+                        `;
+                    });
+                }
                 
                 html += '</div></div>';
                 content.innerHTML = html;
@@ -613,18 +730,75 @@ function focusGlobalParam(index) {
     }
 }
 
+// Filter parameters based on search input
+function filterParameters() {
+    const searchInput = document.getElementById('paramSearch');
+    if (!searchInput) return;
+    
+    const searchTerm = searchInput.value.toLowerCase();
+    const paramItems = document.querySelectorAll('.param-item');
+    const sectionHeaders = document.querySelectorAll('.param-section-header');
+    
+    let triggerParamsVisible = 0;
+    let globalParamsVisible = 0;
+    let inGlobalSection = false;
+    
+    paramItems.forEach(item => {
+        const paramName = item.getAttribute('data-param-name');
+        
+        // Check if we've reached global section
+        const prevSibling = item.previousElementSibling;
+        if (prevSibling && prevSibling.classList.contains('param-section-header')) {
+            const headerText = prevSibling.textContent.toLowerCase();
+            if (headerText.includes('global')) {
+                inGlobalSection = true;
+            }
+        }
+        
+        if (paramName && paramName.includes(searchTerm)) {
+            item.style.display = '';
+            if (inGlobalSection) {
+                globalParamsVisible++;
+            } else {
+                triggerParamsVisible++;
+            }
+        } else {
+            item.style.display = 'none';
+        }
+    });
+    
+    // Show/hide section headers based on visible items
+    sectionHeaders.forEach(header => {
+        const headerText = header.textContent.toLowerCase();
+        if (headerText.includes('trigger') && triggerParamsVisible === 0) {
+            header.style.display = 'none';
+        } else if (headerText.includes('global') && globalParamsVisible === 0) {
+            header.style.display = 'none';
+        } else {
+            header.style.display = '';
+        }
+    });
+}
+
 // Execute action
 async function executeAction() {
-    // For FCP triggers, always set both branch parameters to fcp-classic-pipeline
-    if (wizardData.mode === 'trigger') {
+    // For CD pipelines with FCP triggers, always set both branch parameters to fcp-classic-pipeline
+    if (wizardData.mode === 'trigger' && wizardData.pipelineType === 'cd') {
         const isFCP = wizardData.trigger.name.toLowerCase().includes('fcp');
         
         if (isFCP) {
-            // Always set both branches to fcp-classic-pipeline for FCP triggers
+            // Always set both branches to fcp-classic-pipeline for FCP CD triggers
             wizardData.propertyOverrides['one-pipeline-config-branch'] = 'fcp-classic-pipeline';
             wizardData.propertyOverrides['pipeline-config-branch'] = 'fcp-classic-pipeline';
-            console.log('FCP trigger detected - setting both branches to fcp-classic-pipeline');
+            console.log('FCP CD trigger detected - setting both branches to fcp-classic-pipeline');
         }
+    }
+    
+    // For CI pipelines, don't set the one-pipeline-config-branch parameter
+    if (wizardData.mode === 'trigger' && wizardData.pipelineType === 'ci') {
+        // Remove one-pipeline-config-branch if it was set
+        delete wizardData.propertyOverrides['one-pipeline-config-branch'];
+        console.log('CI pipeline - removed one-pipeline-config-branch parameter');
     }
     
     // Move to execution step

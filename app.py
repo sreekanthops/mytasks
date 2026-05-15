@@ -1145,21 +1145,25 @@ def fcp_search_toolchains():
     try:
         data = request.get_json()
         service_name = data.get('service_name', '').strip()
+        pipeline_type = data.get('pipeline_type', 'cd')  # Default to 'cd' for backward compatibility
         
-        print(f"DEBUG: Searching for service: {service_name}")
+        print(f"DEBUG: Searching for service: {service_name}, pipeline_type: {pipeline_type}")
         
         if not service_name:
             return jsonify({'success': False, 'error': 'Service name is required'})
         
-        # Use IBM Cloud CLI to search for toolchains (same as bash script)
+        # Use IBM Cloud CLI to search for toolchains
         import subprocess
         import json as json_module
         
-        # Get all toolchains and filter with jq (same as bash script)
-        cmd = f'''ibmcloud dev toolchains --output json | jq -r --arg service "{service_name}" '
+        # Determine the toolchain suffix based on pipeline type
+        toolchain_suffix = '-ci' if pipeline_type == 'ci' else '-cd'
+        
+        # Get all toolchains and filter with jq (case-insensitive search)
+        cmd = f'''ibmcloud dev toolchains --output json | jq -r --arg service "{service_name.lower()}" --arg suffix "{toolchain_suffix}" '
             .items[]
-            | select(.name | contains($service))
-            | select(.name | contains("-cd"))
+            | select(.name | ascii_downcase | contains($service))
+            | select(.name | contains($suffix))
             | {{name, toolchain_guid}}
         ' | jq -s .'''
         
@@ -1167,22 +1171,31 @@ def fcp_search_toolchains():
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
         
         print(f"DEBUG: Command return code: {result.returncode}")
-        print(f"DEBUG: Command stdout: {result.stdout[:200] if result.stdout else 'empty'}")
+        print(f"DEBUG: Command stdout: {result.stdout[:500] if result.stdout else 'empty'}")
         print(f"DEBUG: Command stderr: {result.stderr[:200] if result.stderr else 'empty'}")
         
         if result.returncode != 0:
             return jsonify({'success': False, 'error': f'Command failed: {result.stderr}'})
         
-        if not result.stdout.strip():
-            return jsonify({'success': False, 'error': 'No toolchains found'})
+        if not result.stdout.strip() or result.stdout.strip() == '[]':
+            # Try to get all toolchains to help debug
+            debug_cmd = f'''ibmcloud dev toolchains --output json | jq -r '.items[] | select(.name | contains("{toolchain_suffix}")) | .name' | head -10'''
+            debug_result = subprocess.run(debug_cmd, shell=True, capture_output=True, text=True, timeout=30)
+            available_examples = debug_result.stdout.strip().split('\n')[:5] if debug_result.stdout else []
+            
+            error_msg = f'No {pipeline_type.upper()} toolchains found for "{service_name}".'
+            if available_examples:
+                error_msg += f' Available {pipeline_type.upper()} toolchains include: {", ".join(available_examples)}'
+            
+            return jsonify({'success': False, 'error': error_msg})
         
         # Parse JSON output
         toolchains = json_module.loads(result.stdout)
         
-        print(f"DEBUG: Found {len(toolchains)} toolchains: {toolchains}")
+        print(f"DEBUG: Found {len(toolchains)} {pipeline_type.upper()} toolchains: {toolchains}")
         
         if not toolchains:
-            return jsonify({'success': False, 'error': 'No toolchains found'})
+            return jsonify({'success': False, 'error': f'No {pipeline_type.upper()} toolchains found for "{service_name}"'})
         
         return jsonify({'success': True, 'toolchains': toolchains})
         
@@ -1198,8 +1211,9 @@ def fcp_get_triggers():
     try:
         data = request.get_json()
         toolchain_guid = data.get('toolchain_guid')
+        pipeline_type = data.get('pipeline_type', 'cd')  # Default to 'cd' for backward compatibility
         
-        print(f"DEBUG: Getting triggers for toolchain: {toolchain_guid}")
+        print(f"DEBUG: Getting {pipeline_type.upper()} triggers for toolchain: {toolchain_guid}")
         
         if not toolchain_guid:
             return jsonify({'success': False, 'error': 'Toolchain GUID is required'})
@@ -1229,20 +1243,34 @@ def fcp_get_triggers():
             print(f"DEBUG: API error: {response.status_code} - {response.text}")
             return jsonify({'success': False, 'error': f'API error: {response.status_code}'})
         
-        # Extract manual triggers
+        # Extract triggers based on pipeline type
         triggers_data = response.json()
         triggers = []
         
         for trigger in triggers_data.get('triggers', []):
-            if trigger.get('type') == 'manual':
-                triggers.append({
-                    'id': trigger.get('id'),
-                    'name': trigger.get('name'),
-                    'type': trigger.get('type'),
-                    'enabled': trigger.get('enabled', True)
-                })
+            trigger_type = trigger.get('type', '')
+            
+            # Filter based on pipeline type
+            if pipeline_type == 'cd':
+                # CD pipelines: manual triggers
+                if trigger_type == 'manual':
+                    triggers.append({
+                        'id': trigger.get('id'),
+                        'name': trigger.get('name'),
+                        'type': trigger_type,
+                        'enabled': trigger.get('enabled', True)
+                    })
+            elif pipeline_type == 'ci':
+                # CI pipelines: git, scm, github, gitlab triggers
+                if trigger_type in ['git', 'scm', 'github', 'gitlab', 'generic']:
+                    triggers.append({
+                        'id': trigger.get('id'),
+                        'name': trigger.get('name'),
+                        'type': trigger_type,
+                        'enabled': trigger.get('enabled', True)
+                    })
         
-        print(f"DEBUG: Found {len(triggers)} manual triggers")
+        print(f"DEBUG: Found {len(triggers)} {pipeline_type.upper()} triggers")
         
         return jsonify({'success': True, 'triggers': triggers})
         

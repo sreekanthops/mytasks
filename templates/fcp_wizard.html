@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}FCP Manager - Task Dashboard{% endblock %}
+{% block title %}Pipelines - Task Dashboard{% endblock %}
 
 {% block content %}
 <div class="fcp-wizard-container">
@@ -33,13 +33,13 @@
         <!-- Step 1: Mode Selection -->
         <div class="wizard-step active" id="step-1">
             <h2>Select Operation Mode</h2>
-            <p class="step-description">Choose what you want to do with FCP Manager</p>
+            <p class="step-description">Choose what you want to do with Pipelines</p>
             
             <div class="mode-selection">
                 <button class="mode-card" onclick="selectMode('trigger')">
                     <i class="fas fa-play-circle"></i>
                     <h3>Trigger Existing Pipeline</h3>
-                    <p>Execute an existing manual CD trigger</p>
+                    <p>Execute an existing CI or CD pipeline</p>
                     <ul>
                         <li>Quick execution</li>
                         <li>Review parameters</li>
@@ -55,6 +55,36 @@
                         <li>Multi-DC support</li>
                         <li>Auto-configuration</li>
                         <li>Template-based</li>
+                    </ul>
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 1.5: Pipeline Type Selection (shown after selecting 'trigger' mode) -->
+        <div class="wizard-step" id="step-1-5">
+            <h2>Select Pipeline Type</h2>
+            <p class="step-description">Choose the type of pipeline you want to trigger</p>
+            
+            <div class="mode-selection">
+                <button class="mode-card" onclick="selectPipelineType('ci')">
+                    <i class="fas fa-code-branch"></i>
+                    <h3>CI Pipeline</h3>
+                    <p>Continuous Integration pipeline</p>
+                    <ul>
+                        <li>Build & Test</li>
+                        <li>Code validation</li>
+                        <li>Automated triggers</li>
+                    </ul>
+                </button>
+                
+                <button class="mode-card" onclick="selectPipelineType('cd')">
+                    <i class="fas fa-rocket"></i>
+                    <h3>CD Pipeline</h3>
+                    <p>Continuous Deployment pipeline</p>
+                    <ul>
+                        <li>Manual deployment</li>
+                        <li>Multi-DC support</li>
+                        <li>Production ready</li>
                     </ul>
                 </button>
             </div>

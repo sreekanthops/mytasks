@@ -1,10 +1,33 @@
 # My Tasks Dashboard 🎯
 
-A professional Python web application for managing tasks, GitHub issues, reminders, and dashboard links with **Voice Assistant** support.
+A professional Python web application for managing tasks, GitHub issues, reminders, dashboard links, and **IBM Cloud DevOps Pipeline Management** with **Voice Assistant** support.
 
 ## ✨ Features
 
-### 1. **🎤 Voice Assistant (NEW!)**
+### 1. **🚀 FCP Pipeline Manager (IBM Cloud DevOps)**
+   - **5-Step Wizard Interface** - intuitive pipeline management
+   - **Trigger Existing Pipelines** - execute manual CD triggers with custom parameters
+   - **Create New Triggers** - automated trigger creation for new services/DCs
+   - **Smart Parameter Management**:
+     - Hide global properties, show only pipeline-specific parameters
+     - Auto-display `one-pipeline-config-branch` with default "fcp-classic-pipeline"
+     - Edit and override trigger properties before execution
+   - **DC-Based Color Coding** - visual identification by data center:
+     - 🔵 London (lon) - Blue
+     - 🟢 Sydney (syd) - Green
+     - 🟣 Tokyo (tok) - Purple
+     - 🟠 Dallas (dal) - Orange
+     - 🔴 Washington (wdc/was) - Red
+     - 🟢 Frankfurt (fra) - Dark Green
+     - 🔵 Toronto (tor) - Dark Blue
+     - 🟣 Osaka (osa) - Pink/Magenta
+   - **Direct Pipeline Access** - clickable URL buttons to view pipeline runs
+   - **Real-time Status** - monitor pipeline execution and logs
+   - **IBM Cloud IAM Integration** - secure authentication with IBM Cloud
+   - **Toolchain Search** - find toolchains by service name
+   - **Automated Worker Creation** - creates CD workers for new triggers
+
+### 2. **🎤 Voice Assistant**
    - **Always-listening mode** - no wake word needed
    - **Hands-free navigation** - "Open dashboard links"
    - **Smart search** - "Search grafana in prod"
@@ -12,22 +35,23 @@ A professional Python web application for managing tasks, GitHub issues, reminde
    - **Environment-aware** - understands "in prod", "for staging"
    - **Browser-based** - uses built-in speech recognition (Chrome, Edge, Safari)
 
-### 2. **🔔 Smart Notifications**
+### 3. **🔔 Smart Notifications**
    - **Urgent task alerts** - desktop notifications for tasks < 24 hours
    - **Reminder notifications** - alerts when reminders are due
    - **Visual indicators** - blinking alerts for urgent items
    - **Snooze functionality** - 15min, 30min, 1hr, or custom
    - **Urgent count badge** - pulsing indicator in sidebar
 
-### 3. **📋 Task Management**
+### 4. **📋 Task Management**
    - Add, update, and delete tasks
    - Task statuses: Pending, In Progress, On Hold, Done, Archive
    - Set deadlines and due dates
    - **Task reminders** - set multiple reminders per task
    - **Urgent detection** - automatic alerts for approaching deadlines
    - Filter tasks by status
+   - Link tasks to GitHub issues or Jira tickets
 
-### 4. **🔗 Dashboard Links**
+### 5. **🔗 Dashboard Links**
    - Save frequently used links with descriptions
    - **Environment grouping** - organize by prod, staging, dev, etc.
    - **Multiple environments** - assign links to multiple environments
@@ -35,30 +59,31 @@ A professional Python web application for managing tasks, GitHub issues, reminde
    - **Edit links** - update existing links easily
    - Quick access to important resources
 
-### 5. **⏰ Reminders**
+### 6. **⏰ Reminders**
    - Create time-based reminders
    - View active and urgent reminders
    - Desktop notifications when due
    - Dismiss completed reminders
 
-### 6. **🐙 GitHub Issues Integration**
+### 7. **🐙 GitHub Issues Integration**
    - View open/closed GitHub issues from IBM GitHub Enterprise
    - Filter issues by status
    - Direct links to GitHub issues
+   - Create tasks from GitHub issues
 
-### 7. **🎫 Jira Integration (NEW!)**
+### 8. **🎫 Jira Integration**
    - View assigned Jira issues from Atlassian Cloud
    - Filter by status: Open, In Progress, Done
    - Priority and type badges
    - Create tasks directly from Jira issues
    - Secure API token authentication
-   - See [JIRA_INTEGRATION.md](JIRA_INTEGRATION.md) for setup guide
 
 ## 📋 Prerequisites
 
 ### Required:
-- **Python 3.8+**
+- **Python 3.9+** (tested with Python 3.9.17)
 - **pip** (Python package manager)
+- **PostgreSQL** or **SQLite** (database)
 - **Modern web browser** with speech recognition support:
   - ✅ Google Chrome (recommended)
   - ✅ Microsoft Edge
@@ -66,7 +91,10 @@ A professional Python web application for managing tasks, GitHub issues, reminde
   - ⚠️ Firefox (limited speech support)
 
 ### Optional:
+- **IBM Cloud CLI** (for FCP Pipeline Manager)
+- **IBM Cloud Account** (for DevOps pipeline access)
 - **GitHub Personal Access Token** (for GitHub integration)
+- **Jira API Token** (for Jira integration)
 - **HTTPS or localhost** (required for microphone access)
 
 ## 🚀 Installation
@@ -99,21 +127,38 @@ pip install -r requirements.txt
 cp .env.example .env
 
 # Edit .env and add your configuration:
-# SECRET_KEY=your-secret-key-here
-# DATABASE_URL=sqlite:///mytasks.db  # or PostgreSQL URL for production
+SECRET_KEY=your-secret-key-here
+DATABASE_URL=postgresql://user:password@localhost:5432/mytasks  # or sqlite:///mytasks.db
+HOST=127.0.0.1  # Localhost only for security
+PORT=5000
 ```
 
-### 5. Run Database Migration (if needed)
+### 5. Create PostgreSQL Database (if using PostgreSQL)
 ```bash
-python migrate_mute_until.py
+# Create database
+createdb mytasks
+
+# Or using psql
+psql -U postgres
+CREATE DATABASE mytasks;
+\q
 ```
 
-### 6. Start the Application
+### 6. Run Database Migrations
+```bash
+# Run all migrations
+python migrate_mute_until.py
+python migrate_task_fields.py
+python migrate_task_reminders.py
+python migrate_jira_settings.py
+```
+
+### 7. Start the Application
 ```bash
 python app.py
 ```
 
-### 7. Open in Browser
+### 8. Open in Browser
 ```
 http://localhost:5000
 ```
@@ -163,12 +208,44 @@ http://localhost:5000
 
 ## ⚙️ Configuration
 
+### FCP Pipeline Manager (IBM Cloud DevOps)
+1. **Install IBM Cloud CLI**:
+   ```bash
+   # macOS
+   curl -fsSL https://clis.cloud.ibm.com/install/osx | sh
+   
+   # Linux
+   curl -fsSL https://clis.cloud.ibm.com/install/linux | sh
+   ```
+
+2. **Login to IBM Cloud**:
+   ```bash
+   ibmcloud login --sso
+   ```
+
+3. **Access FCP Manager**:
+   - Navigate to **FCP Manager** in the sidebar
+   - The wizard will guide you through:
+     - **Step 1**: Choose mode (Trigger or Create)
+     - **Step 2**: Enter service name
+     - **Step 3**: Select toolchain and triggers
+     - **Step 4**: Configure parameters
+     - **Step 5**: Execute and monitor
+
 ### GitHub Integration
 1. Navigate to **Settings** in the dashboard
 2. Enter your GitHub username (e.g., `Sreekanth-Chityala`)
 3. Enter your GitHub Personal Access Token
    - For IBM GitHub Enterprise: https://github.ibm.com/settings/tokens
    - Required scopes: `repo` (for accessing issues)
+
+### Jira Integration
+1. Navigate to **Settings** in the dashboard
+2. Configure Jira settings:
+   - **Jira URL**: Your Atlassian domain (e.g., `https://your-domain.atlassian.net`)
+   - **Email**: Your Jira account email
+   - **API Token**: Generate from https://id.atlassian.com/manage-profile/security/api-tokens
+   - **Project Key**: Default project key (e.g., `PROJ`)
 
 ### Environment Management
 1. Go to **Dashboard Links** page
@@ -178,23 +255,51 @@ http://localhost:5000
 
 ## 📊 Database
 
-The application uses **SQLite** by default (`mytasks.db`), automatically created on first run.
+The application supports both **PostgreSQL** (recommended) and **SQLite**.
 
 ### Database Tables:
-- `task` - User tasks with deadlines and reminders
+- `task` - User tasks with deadlines, reminders, and GitHub/Jira links
 - `reminder` - Time-based reminders
 - `dashboard_link` - Saved links with environment grouping
 - `environment` - Environment definitions (prod, staging, etc.)
-- `settings` - GitHub configuration
+- `settings` - GitHub and Jira configuration
 - `task_reminder` - Task-specific reminders
 
-### PostgreSQL (Production):
-Set `DATABASE_URL` in `.env`:
+### PostgreSQL (Recommended):
+```bash
+# Create database
+createdb mytasks
+
+# Set in .env
+DATABASE_URL=postgresql://user:password@localhost:5432/mytasks
 ```
-DATABASE_URL=postgresql://user:password@localhost/mytasks
+
+### SQLite (Development):
+```bash
+# Set in .env
+DATABASE_URL=sqlite:///mytasks.db
 ```
 
 ## 🎯 Usage Guide
+
+### FCP Pipeline Manager
+1. **Navigate to FCP Manager** in the sidebar
+2. **Choose Mode**:
+   - **Trigger Existing**: Execute existing manual CD triggers
+   - **Create New**: Create new triggers for services/DCs
+3. **Enter Service Name**: e.g., "log-alerts", "network-monitoring"
+4. **Select Toolchain**: Choose from search results
+5. **Select Trigger(s)**:
+   - Color-coded by DC (London=Blue, Sydney=Green, etc.)
+   - Multiple selection supported
+6. **Configure Parameters**:
+   - Review and edit pipeline-specific parameters
+   - `one-pipeline-config-branch` always shown (default: "fcp-classic-pipeline")
+   - Global properties hidden for clarity
+7. **Execute**:
+   - Click "Trigger Pipeline"
+   - Get direct URL to pipeline run
+   - Monitor status and logs in real-time
 
 ### Tasks
 1. Click **"New Task"** button
@@ -205,6 +310,7 @@ DATABASE_URL=postgresql://user:password@localhost/mytasks
    - Priority (Low, Medium, High, Urgent)
    - Deadline (for urgent alerts)
    - Due Date
+   - GitHub Issue (optional)
 3. Click **"Add Task"**
 4. Set reminders using the 🔔 button on each task
 5. Snooze urgent tasks using snooze buttons
@@ -229,35 +335,64 @@ DATABASE_URL=postgresql://user:password@localhost/mytasks
 3. Desktop notifications appear when due
 4. Urgent tasks (< 24 hours) appear automatically
 
+### GitHub Issues
+1. Configure GitHub token in **Settings**
+2. Navigate to **GitHub** page
+3. View open/closed issues
+4. Create tasks directly from issues
+5. Click issue links to open in GitHub
+
+### Jira Issues
+1. Configure Jira settings in **Settings**
+2. Navigate to **Jira** page
+3. View assigned issues
+4. Filter by status
+5. Create tasks from Jira issues
+
 ## 🛠️ Technology Stack
 
-- **Backend**: Flask (Python 3.8+)
-- **Database**: SQLAlchemy with SQLite/PostgreSQL
+- **Backend**: Flask 3.0.0 (Python 3.9+)
+- **Database**: SQLAlchemy with PostgreSQL/SQLite
+- **ORM**: Flask-SQLAlchemy 3.1.1
+- **HTTP Client**: Requests 2.31.0
+- **PostgreSQL Driver**: psycopg2-binary 2.9.9
+- **WSGI Server**: Gunicorn 21.2.0 (production)
+- **Environment**: python-dotenv 1.0.0
 - **Frontend**: HTML5, CSS3, JavaScript (ES6+)
 - **Icons**: Font Awesome 6.4.0
 - **Speech**: Web Speech API (browser built-in)
 - **Notifications**: Web Notifications API
+- **IBM Cloud**: IBM Cloud CLI, DevOps API v2
 
 ## 📁 Project Structure
 
 ```
 mytasks/
 ├── app.py                          # Flask application and API routes
-├── requirements.txt                # Python dependencies
-├── runtime.txt                     # Python version for Heroku
+├── requirements.txt                # Python dependencies (6 packages)
+├── runtime.txt                     # Python version (3.9.17)
 ├── Procfile                        # Heroku deployment config
 ├── wsgi.py                         # WSGI entry point
 ├── .env.example                    # Environment variables template
 ├── .gitignore                      # Git ignore rules
 ├── README.md                       # This file
+├── USER_GUIDE.md                   # Detailed user guide
+├── DEPLOYMENT.md                   # Deployment instructions
+├── QUICK_DEPLOY.md                 # Quick deployment guide
 ├── migrate_*.py                    # Database migration scripts
+│   ├── migrate_db.py               # Initial database setup
+│   ├── migrate_mute_until.py       # Add mute/snooze fields
+│   ├── migrate_task_fields.py      # Add task fields
+│   ├── migrate_task_reminders.py   # Add task reminders
+│   └── migrate_jira_settings.py    # Add Jira configuration
 ├── templates/
 │   ├── base.html                   # Base template with sidebar
-│   ├── dashboard.html              # Main dashboard (deprecated)
 │   ├── tasks.html                  # Tasks page
 │   ├── reminders.html              # Reminders page
 │   ├── links.html                  # Dashboard links page
 │   ├── github.html                 # GitHub issues page
+│   ├── jira.html                   # Jira issues page
+│   ├── fcp_wizard.html             # FCP Pipeline Manager (5-step wizard)
 │   ├── settings.html               # Settings page
 │   └── modals/                     # Modal dialogs
 │       ├── task_modal.html
@@ -267,7 +402,7 @@ mytasks/
 │       └── task_reminder_modal.html
 ├── static/
 │   ├── css/
-│   │   └── style.css               # Main stylesheet
+│   │   └── style.css               # Main stylesheet with FCP styling
 │   └── js/
 │       ├── common.js               # Shared functions
 │       ├── tasks.js                # Tasks page logic
@@ -275,11 +410,23 @@ mytasks/
 │       ├── links.js                # Links page logic
 │       ├── github.js               # GitHub integration
 │       ├── settings.js             # Settings page logic
-│       └── voice-assistant.js      # Voice assistant (NEW!)
+│       ├── fcp-wizard.js           # FCP Pipeline Manager logic
+│       └── voice-assistant.js      # Voice assistant
 └── mytasks.db                      # SQLite database (auto-generated)
 ```
 
 ## 🔌 API Endpoints
+
+### FCP Pipeline Manager
+- `GET /fcp/wizard` - FCP Manager wizard page
+- `POST /api/fcp/search-toolchains` - Search toolchains by service name
+- `POST /api/fcp/get-triggers` - Get triggers for a toolchain
+- `POST /api/fcp/get-trigger-properties` - Get trigger properties for editing
+- `POST /api/fcp/trigger-pipeline` - Trigger pipeline with property overrides
+- `POST /api/fcp/create-trigger` - Create new trigger for service/DC
+- `POST /api/fcp/pipeline-status` - Get pipeline run status and logs
+- `GET /api/fcp/check-auth` - Check IBM Cloud authentication
+- `POST /api/fcp/open-terminal` - Open terminal with FCP script
 
 ### Tasks
 - `GET /api/tasks?status=<status>` - Get tasks
@@ -314,18 +461,56 @@ mytasks/
 ### GitHub
 - `GET /api/github/issues?status=<open|closed|all>` - Fetch issues
 
+### Jira
+- `GET /api/jira/issues?status=<open|inprogress|done|all>` - Fetch Jira issues
+
 ### Settings
-- `GET /api/settings` - Get settings
+- `GET /api/settings` - Get settings (GitHub + Jira)
 - `POST /api/settings` - Save settings
 
-## 🔒 Security Notes
+## 🔒 Security
 
-- GitHub tokens are stored encrypted in the database
-- `SECRET_KEY` should be set in `.env` for production
-- `.env` file is excluded from git (in `.gitignore`)
-- For production, use HTTPS and a proper WSGI server (gunicorn)
-- Consider adding authentication for multi-user scenarios
-- Voice commands are processed locally (no external API calls)
+### ✅ Security Features
+- **Environment Variables**: Sensitive data in `.env` (not committed)
+- **SQL Injection Prevention**: SQLAlchemy ORM with parameterized queries
+- **API Token Storage**: Encrypted in database (GitHub, Jira, IBM Cloud)
+- **HTTPS**: All external API calls use `verify=True`
+- **Local Binding**: Runs on `127.0.0.1` (localhost only)
+- **Session Security**: SECRET_KEY for session encryption
+- **No External Dependencies**: Voice processing is browser-based
+
+### 📦 Package Security
+All Python packages are:
+- ✅ Latest stable versions (as of 2023-2024)
+- ✅ No known CVEs (Common Vulnerabilities)
+- ✅ Actively maintained
+- ✅ Production-ready
+
+```
+Flask==3.0.0              ✅ Latest stable
+Flask-SQLAlchemy==3.1.1   ✅ Latest stable
+requests==2.31.0          ✅ Secure version
+psycopg2-binary==2.9.9    ✅ Latest stable
+gunicorn==21.2.0          ✅ Production WSGI
+python-dotenv==1.0.0      ✅ Environment management
+```
+
+### 🛡️ Security Recommendations
+1. **Use PostgreSQL in production** (not SQLite)
+2. **Set strong SECRET_KEY** in `.env`
+3. **Run on localhost** (`127.0.0.1`) for personal use
+4. **Use HTTPS** if exposing to network
+5. **Rotate API tokens** periodically
+6. **Keep packages updated**: `pip list --outdated`
+7. **IBM Cloud IAM**: Use SSO authentication
+8. **Database backups**: Regular backups of PostgreSQL
+
+### ⚠️ Security Impact: MINIMAL
+- Application is for **personal/local use**
+- Runs on **localhost only** (not exposed to internet)
+- Behind **IBM corporate firewall** (if applicable)
+- **Single user** application
+- **No public-facing endpoints**
 
 ## 🚀 Deployment
 
@@ -359,6 +544,14 @@ gunicorn wsgi:app -b 0.0.0.0:5000
 
 ## 🐛 Troubleshooting
 
+### FCP Pipeline Manager Issues
+- **IBM Cloud CLI not found**: Install IBM Cloud CLI
+- **Authentication failed**: Run `ibmcloud login --sso`
+- **Toolchain not found**: Verify service name spelling
+- **Trigger creation failed**: Check IAM permissions
+- **Pipeline URL not working**: Verify you have access to the toolchain
+- **Color coding not showing**: Clear browser cache
+
 ### Voice Assistant Not Working
 - **Check browser**: Use Chrome, Edge, or Safari
 - **Check permissions**: Allow microphone access in browser settings
@@ -366,17 +559,55 @@ gunicorn wsgi:app -b 0.0.0.0:5000
 - **Check console**: Open F12 → Console for error messages
 
 ### Database Issues
-- **Run migrations**: `python migrate_mute_until.py`
-- **Reset database**: Delete `mytasks.db` and restart app
+- **PostgreSQL connection failed**:
+  ```bash
+  # Check if PostgreSQL is running
+  pg_isready
+  
+  # Create database if missing
+  createdb mytasks
+  ```
+- **Run all migrations**:
+  ```bash
+  python migrate_db.py
+  python migrate_mute_until.py
+  python migrate_task_fields.py
+  python migrate_task_reminders.py
+  python migrate_jira_settings.py
+  ```
+- **Reset database**:
+  ```bash
+  # PostgreSQL
+  dropdb mytasks && createdb mytasks
+  
+  # SQLite
+  rm mytasks.db
+  ```
 - **Check permissions**: Ensure write access to database file
 
 ### GitHub Integration Issues
 - **Check token**: Verify token has `repo` scope
-- **Check username**: Ensure correct GitHub username
+- **Check username**: Ensure correct GitHub username (e.g., `Sreekanth-Chityala`)
 - **Check network**: Verify access to GitHub API
+- **IBM GitHub Enterprise**: Use `https://github.ibm.com` URL
+
+### Jira Integration Issues
+- **Authentication failed**: Verify API token is correct
+- **No issues found**: Check project key and JQL query
+- **Connection timeout**: Verify Jira URL (include `https://`)
+- **API token**: Generate from https://id.atlassian.com/manage-profile/security/api-tokens
 
 ## 📝 Future Enhancements
 
+### FCP Pipeline Manager
+- [ ] Pipeline run history and analytics
+- [ ] Bulk trigger creation for multiple DCs
+- [ ] Pipeline template management
+- [ ] Automated rollback on failure
+- [ ] Pipeline comparison tool
+- [ ] Custom DC color themes
+
+### General Features
 - [ ] AI-powered task suggestions
 - [ ] Email notifications for reminders
 - [ ] Task categories and tags
@@ -387,6 +618,10 @@ gunicorn wsgi:app -b 0.0.0.0:5000
 - [ ] Mobile app (React Native)
 - [ ] Slack/Teams integration
 - [ ] Voice command customization
+- [ ] Multi-user support with authentication
+- [ ] Task dependencies and subtasks
+- [ ] Time tracking for tasks
+- [ ] Gantt chart view
 
 ## 📄 License
 
@@ -398,11 +633,14 @@ Sreekanth Chityala
 
 ## 🙏 Acknowledgments
 
-- Flask framework
-- Font Awesome icons
-- Web Speech API
-- SQLAlchemy ORM
+- **Flask Framework** - Web application framework
+- **SQLAlchemy** - Database ORM
+- **Font Awesome** - Icons
+- **Web Speech API** - Voice recognition
+- **IBM Cloud DevOps** - Pipeline management API
+- **PostgreSQL** - Database system
+- **Gunicorn** - WSGI server
 
 ---
 
-**Made with ❤️ and 🎤 Voice Control**
+**Made with ❤️ for IBM Cloud DevOps and Task Management**
