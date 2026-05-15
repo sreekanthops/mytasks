@@ -1145,7 +1145,11 @@ def fcp_search_toolchains():
     try:
         data = request.get_json()
         service_name = data.get('service_name', '').strip()
-        pipeline_type = data.get('pipeline_type', 'cd')  # Default to 'cd' for backward compatibility
+        pipeline_type = data.get('pipeline_type')
+        
+        # Default to 'cd' if pipeline_type is not provided (for Create mode)
+        if not pipeline_type:
+            pipeline_type = 'cd'
         
         print(f"DEBUG: Searching for service: {service_name}, pipeline_type: {pipeline_type}")
         
