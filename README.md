@@ -4,14 +4,19 @@ A professional Python web application for managing tasks, GitHub issues, reminde
 
 ## ✨ Features
 
-### 1. **🚀 FCP Pipeline Manager (IBM Cloud DevOps)**
+### 1. **🚀 Pipelines Manager (IBM Cloud DevOps)**
    - **5-Step Wizard Interface** - intuitive pipeline management
-   - **Trigger Existing Pipelines** - execute manual CD triggers with custom parameters
+   - **CI/CD Pipeline Support** - manage both Continuous Integration and Continuous Deployment pipelines
+   - **Pipeline Type Selection** - choose between CI and CD pipelines
+   - **Trigger Existing Pipelines** - execute CI (git/scm) or CD (manual) triggers
    - **Create New Triggers** - automated trigger creation for new services/DCs
-   - **Smart Parameter Management**:
-     - Hide global properties, show only pipeline-specific parameters
-     - Auto-display `one-pipeline-config-branch` with default "fcp-classic-pipeline"
-     - Edit and override trigger properties before execution
+   - **Enhanced Parameter Management**:
+     - Display ALL parameters (trigger-specific + global pipeline parameters)
+     - Organized sections: Trigger Parameters first, Global Parameters after
+     - Real-time parameter search functionality
+     - Smart filtering and section hiding
+     - CD-specific: Auto-display `one-pipeline-config-branch` with default "fcp-classic-pipeline"
+     - CI pipelines: All parameters editable, no fixed config branch
    - **DC-Based Color Coding** - visual identification by data center:
      - 🔵 London (lon) - Blue
      - 🟢 Sydney (syd) - Green
@@ -208,7 +213,7 @@ http://localhost:5000
 
 ## ⚙️ Configuration
 
-### FCP Pipeline Manager (IBM Cloud DevOps)
+### Pipelines Manager (IBM Cloud DevOps)
 1. **Install IBM Cloud CLI**:
    ```bash
    # macOS
@@ -223,13 +228,14 @@ http://localhost:5000
    ibmcloud login --sso
    ```
 
-3. **Access FCP Manager**:
-   - Navigate to **FCP Manager** in the sidebar
+3. **Access Pipelines Manager**:
+   - Navigate to **Pipelines** in the sidebar
    - The wizard will guide you through:
      - **Step 1**: Choose mode (Trigger or Create)
+     - **Step 1.5**: Select pipeline type (CI or CD) - for Trigger mode
      - **Step 2**: Enter service name
      - **Step 3**: Select toolchain and triggers
-     - **Step 4**: Configure parameters
+     - **Step 4**: Configure parameters (with search)
      - **Step 5**: Execute and monitor
 
 ### GitHub Integration
@@ -282,22 +288,27 @@ DATABASE_URL=sqlite:///mytasks.db
 
 ## 🎯 Usage Guide
 
-### FCP Pipeline Manager
-1. **Navigate to FCP Manager** in the sidebar
+### Pipelines Manager
+1. **Navigate to Pipelines** in the sidebar
 2. **Choose Mode**:
-   - **Trigger Existing**: Execute existing manual CD triggers
+   - **Trigger Existing**: Execute existing CI or CD pipelines
    - **Create New**: Create new triggers for services/DCs
-3. **Enter Service Name**: e.g., "log-alerts", "network-monitoring"
-4. **Select Toolchain**: Choose from search results
-5. **Select Trigger(s)**:
+3. **Select Pipeline Type** (for Trigger mode):
+   - **CI Pipeline**: Continuous Integration (git/scm triggers)
+   - **CD Pipeline**: Continuous Deployment (manual triggers)
+4. **Enter Service Name**: e.g., "log-alerts", "network-monitoring" (case-insensitive)
+5. **Select Toolchain**: Choose from search results (filtered by CI/CD type)
+6. **Select Trigger(s)**:
    - Color-coded by DC (London=Blue, Sydney=Green, etc.)
-   - Multiple selection supported
-6. **Configure Parameters**:
-   - Review and edit pipeline-specific parameters
-   - `one-pipeline-config-branch` always shown (default: "fcp-classic-pipeline")
-   - Global properties hidden for clarity
-7. **Execute**:
-   - Click "Trigger Pipeline"
+   - Filtered by pipeline type
+7. **Configure Parameters**:
+   - View ALL parameters (trigger-specific + global)
+   - Use search box to find specific parameters
+   - Parameters organized in sections
+   - CD: `one-pipeline-config-branch` shown (default: "fcp-classic-pipeline")
+   - CI: All parameters editable
+8. **Execute**:
+   - Click "Execute"
    - Get direct URL to pipeline run
    - Monitor status and logs in real-time
 
@@ -417,16 +428,16 @@ mytasks/
 
 ## 🔌 API Endpoints
 
-### FCP Pipeline Manager
-- `GET /fcp/wizard` - FCP Manager wizard page
-- `POST /api/fcp/search-toolchains` - Search toolchains by service name
-- `POST /api/fcp/get-triggers` - Get triggers for a toolchain
-- `POST /api/fcp/get-trigger-properties` - Get trigger properties for editing
+### Pipelines Manager
+- `GET /fcp/wizard` - Pipelines Manager wizard page
+- `POST /api/fcp/search-toolchains` - Search toolchains by service name (supports pipeline_type: ci/cd)
+- `POST /api/fcp/get-triggers` - Get triggers for a toolchain (filtered by pipeline_type)
+- `POST /api/fcp/get-trigger-properties` - Get trigger and global properties for editing
 - `POST /api/fcp/trigger-pipeline` - Trigger pipeline with property overrides
 - `POST /api/fcp/create-trigger` - Create new trigger for service/DC
 - `POST /api/fcp/pipeline-status` - Get pipeline run status and logs
 - `GET /api/fcp/check-auth` - Check IBM Cloud authentication
-- `POST /api/fcp/open-terminal` - Open terminal with FCP script
+- `POST /api/fcp/open-terminal` - Open terminal with pipeline script
 
 ### Tasks
 - `GET /api/tasks?status=<status>` - Get tasks
@@ -544,13 +555,16 @@ gunicorn wsgi:app -b 0.0.0.0:5000
 
 ## 🐛 Troubleshooting
 
-### FCP Pipeline Manager Issues
+### Pipelines Manager Issues
 - **IBM Cloud CLI not found**: Install IBM Cloud CLI
 - **Authentication failed**: Run `ibmcloud login --sso`
-- **Toolchain not found**: Verify service name spelling
+- **Toolchain not found**: Verify service name spelling (case-insensitive search)
+- **No CI/CD toolchains found**: Check if service has -ci or -cd toolchains
+- **No triggers found**: Verify pipeline type selection (CI vs CD)
 - **Trigger creation failed**: Check IAM permissions
 - **Pipeline URL not working**: Verify you have access to the toolchain
-- **Color coding not showing**: Clear browser cache
+- **Parameters not showing**: Check browser console for errors
+- **Search not working**: Clear browser cache and reload
 
 ### Voice Assistant Not Working
 - **Check browser**: Use Chrome, Edge, or Safari
@@ -599,13 +613,17 @@ gunicorn wsgi:app -b 0.0.0.0:5000
 
 ## 📝 Future Enhancements
 
-### FCP Pipeline Manager
+### Pipelines Manager
+- [x] CI/CD pipeline type selection
+- [x] Enhanced parameter display with search
+- [x] Case-insensitive service search
 - [ ] Pipeline run history and analytics
 - [ ] Bulk trigger creation for multiple DCs
 - [ ] Pipeline template management
 - [ ] Automated rollback on failure
 - [ ] Pipeline comparison tool
 - [ ] Custom DC color themes
+- [ ] CI pipeline creation wizard
 
 ### General Features
 - [ ] AI-powered task suggestions
