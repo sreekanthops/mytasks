@@ -496,8 +496,10 @@ function showCustomDCModal() {
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333;">DC Code:</label>
                     <input type="text" id="customDCInput" placeholder="e.g., dal10"
-                           style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1rem;"
-                           oninput="updateDCPreview()">
+                           style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1rem; text-transform: lowercase;"
+                           oninput="updateDCPreview()"
+                           onkeypress="return /[a-z0-9]/i.test(event.key)">
+                    <small style="color: #666; font-size: 0.875rem;">Enter DC code without spaces (e.g., dal10, not "dallas 10")</small>
                 </div>
                 
                 <div id="dcPreview" style="padding: 1rem; background: #f0f9ff; border-radius: 8px; border: 2px solid #6366f1; margin-bottom: 1.5rem; display: none;">
