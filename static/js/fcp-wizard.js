@@ -486,38 +486,143 @@ function selectAllDCs() {
 
 // Show custom DC modal
 function showCustomDCModal() {
-    const dcCode = prompt('Enter custom DC code (e.g., dal10, wdc04, fra02):');
+    // Create modal HTML
+    const modalHTML = `
+        <div id="customDCModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000;">
+            <div style="background: white; border-radius: 12px; padding: 2rem; max-width: 400px; width: 90%; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                <h3 style="margin: 0 0 1rem 0; color: #333;"><i class="fas fa-plus-circle" style="color: #6366f1;"></i> Add Custom DC</h3>
+                <p style="color: #666; margin-bottom: 1.5rem;">Enter the DC code (e.g., dal10, wdc04, fra02)</p>
+                
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333;">DC Code:</label>
+                    <input type="text" id="customDCInput" placeholder="e.g., dal10"
+                           style="width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1rem;"
+                           oninput="updateDCPreview()">
+                </div>
+                
+                <div id="dcPreview" style="padding: 1rem; background: #f0f9ff; border-radius: 8px; border: 2px solid #6366f1; margin-bottom: 1.5rem; display: none;">
+                    <div style="font-size: 1.25rem; font-weight: 600; color: #333;" id="dcFullName"></div>
+                    <div style="color: #666; margin-top: 0.25rem;" id="dcShortName"></div>
+                    <div style="color: #999; font-size: 0.875rem; margin-top: 0.25rem;" id="dcLongName"></div>
+                </div>
+                
+                <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                    <button onclick="closeCustomDCModal()" style="padding: 0.75rem 1.5rem; background: #e0e0e0; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">Cancel</button>
+                    <button onclick="addCustomDC()" style="padding: 0.75rem 1.5rem; background: #6366f1; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">Add DC</button>
+                </div>
+            </div>
+        </div>
+    `;
     
-    if (dcCode && dcCode.trim()) {
-        const cleanDC = dcCode.trim().toLowerCase();
-        
-        // Initialize customDCs array if not exists
-        if (!wizardData.customDCs) {
-            wizardData.customDCs = [];
+    // Add modal to page
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // Focus input
+    document.getElementById('customDCInput').focus();
+    
+    // Add enter key listener
+    document.getElementById('customDCInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            addCustomDC();
         }
+    });
+}
+
+// Update DC preview
+function updateDCPreview() {
+    const input = document.getElementById('customDCInput');
+    const preview = document.getElementById('dcPreview');
+    const dcCode = input.value.trim().toLowerCase();
+    
+    if (dcCode.length >= 3) {
+        // Parse DC code (e.g., dal10 -> Dallas 10)
+        const dcMap = {
+            'dal': 'Dallas',
+            'wdc': 'Washington',
+            'was': 'Washington',
+            'lon': 'London',
+            'fra': 'Frankfurt',
+            'syd': 'Sydney',
+            'tok': 'Tokyo',
+            'osa': 'Osaka',
+            'tor': 'Toronto',
+            'sao': 'Sao Paulo',
+            'che': 'Chennai',
+            'mon': 'Montreal',
+            'par': 'Paris',
+            'mil': 'Milan',
+            'ams': 'Amsterdam'
+        };
         
-        // Check if DC already added
-        if (wizardData.customDCs.includes(cleanDC)) {
-            alert(`DC "${cleanDC}" is already added!`);
-            return;
-        }
+        // Extract location code (first 3 chars)
+        const locCode = dcCode.substring(0, 3);
+        const dcNumber = dcCode.substring(3);
         
-        // Add to custom DCs
-        wizardData.customDCs.push(cleanDC);
+        const locationName = dcMap[locCode] || locCode.toUpperCase();
+        const fullName = `${locationName} ${dcNumber}`;
+        const shortName = dcCode;
+        const longName = `${dcCode}01`;
         
-        // Add to selected DCs
-        if (!wizardData.dcs.includes(cleanDC)) {
-            wizardData.dcs.push(cleanDC);
-        }
+        document.getElementById('dcFullName').textContent = fullName;
+        document.getElementById('dcShortName').textContent = shortName;
+        document.getElementById('dcLongName').textContent = longName;
         
-        // Reload step 3 to show the new DC
-        loadStep3Content();
-        
-        // Enable next button
-        document.getElementById('step3NextBtn').disabled = false;
-        
-        console.log('Added custom DC:', cleanDC);
-        console.log('Current DCs:', wizardData.dcs);
+        preview.style.display = 'block';
+    } else {
+        preview.style.display = 'none';
+    }
+}
+
+// Add custom DC
+function addCustomDC() {
+    const input = document.getElementById('customDCInput');
+    const dcCode = input.value.trim().toLowerCase();
+    
+    if (!dcCode) {
+        alert('Please enter a DC code');
+        return;
+    }
+    
+    if (dcCode.length < 3) {
+        alert('DC code must be at least 3 characters');
+        return;
+    }
+    
+    // Initialize customDCs array if not exists
+    if (!wizardData.customDCs) {
+        wizardData.customDCs = [];
+    }
+    
+    // Check if DC already added
+    if (wizardData.customDCs.includes(dcCode) || wizardData.dcs.includes(dcCode)) {
+        alert(`DC "${dcCode}" is already added!`);
+        return;
+    }
+    
+    // Add to custom DCs
+    wizardData.customDCs.push(dcCode);
+    
+    // Add to selected DCs
+    wizardData.dcs.push(dcCode);
+    
+    // Close modal
+    closeCustomDCModal();
+    
+    // Reload step 3 to show the new DC
+    loadStep3Content();
+    
+    // Enable next button
+    document.getElementById('step3NextBtn').disabled = false;
+    
+    console.log('Added custom DC:', dcCode);
+    console.log('Current DCs:', wizardData.dcs);
+}
+
+// Close custom DC modal
+function closeCustomDCModal() {
+    const modal = document.getElementById('customDCModal');
+    if (modal) {
+        modal.remove();
     }
 }
 
