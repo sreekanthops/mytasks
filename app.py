@@ -81,10 +81,12 @@ class Settings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     github_token = db.Column(db.String(200))
     github_username = db.Column(db.String(100))
-    jira_url = db.Column(db.String(200))  # e.g., https://your-domain.atlassian.net
-    jira_email = db.Column(db.String(200))  # Email for Jira authentication
-    jira_api_token = db.Column(db.String(200))  # API token from Atlassian
-    jira_project_key = db.Column(db.String(50))  # Default project key (e.g., PROJ)
+
+class Datacenter(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), nullable=False, unique=True)  # e.g., che01, dal09, syd05
+    description = db.Column(db.String(200))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 # Routes
 @app.route('/')
@@ -95,9 +97,6 @@ def index():
 def github_page():
     return render_template('github.html', active_page='github')
 
-@app.route('/jira')
-def jira_page():
-    return render_template('jira.html', active_page='jira')
 
 @app.route('/tasks')
 def tasks_page():
@@ -371,6 +370,44 @@ def environment_detail(env_id):
     db.session.delete(env)
     db.session.commit()
     return jsonify({'message': 'Environment deleted successfully'})
+@app.route('/api/datacenters', methods=['GET', 'POST'])
+def datacenters():
+    """Get all datacenters or create a new one"""
+    if request.method == 'POST':
+        data = request.json
+        dc_name = data['name'].lower().strip()
+        
+        # Check if DC already exists
+        existing_dc = Datacenter.query.filter_by(name=dc_name).first()
+        if existing_dc:
+            return jsonify({'error': 'Datacenter already exists', 'id': existing_dc.id}), 409
+        
+        dc = Datacenter(
+            name=dc_name,
+            description=data.get('description', '')
+        )
+        db.session.add(dc)
+        db.session.commit()
+        print(f"DEBUG: Created new datacenter: {dc_name}")
+        return jsonify({'id': dc.id, 'name': dc.name, 'message': 'Datacenter created successfully'})
+    
+    # GET request - return all datacenters
+    datacenters = Datacenter.query.order_by(Datacenter.name).all()
+    return jsonify([{
+        'id': dc.id,
+        'name': dc.name,
+        'description': dc.description,
+        'created_at': dc.created_at.isoformat()
+    } for dc in datacenters])
+
+@app.route('/api/datacenters/<int:dc_id>', methods=['DELETE'])
+def datacenter_detail(dc_id):
+    """Delete a datacenter"""
+    dc = Datacenter.query.get_or_404(dc_id)
+    db.session.delete(dc)
+    db.session.commit()
+    return jsonify({'message': 'Datacenter deleted successfully'})
+
 
 @app.route('/api/tasks/from-github/<int:issue_number>', methods=['POST'])
 def create_task_from_github(issue_number):
@@ -414,10 +451,6 @@ def settings():
         
         settings.github_token = data.get('github_token', settings.github_token)
         settings.github_username = data.get('github_username', settings.github_username)
-        settings.jira_url = data.get('jira_url', settings.jira_url)
-        settings.jira_email = data.get('jira_email', settings.jira_email)
-        settings.jira_api_token = data.get('jira_api_token', settings.jira_api_token)
-        settings.jira_project_key = data.get('jira_project_key', settings.jira_project_key)
         db.session.commit()
         return jsonify({'message': 'Settings saved successfully'})
     
@@ -425,174 +458,153 @@ def settings():
     if settings:
         return jsonify({
             'github_username': settings.github_username,
-            'has_token': bool(settings.github_token),
-            'jira_url': settings.jira_url,
-            'jira_email': settings.jira_email,
-            'has_jira_token': bool(settings.jira_api_token),
-            'jira_project_key': settings.jira_project_key
+            'has_token': bool(settings.github_token)
         })
     return jsonify({
         'github_username': '',
-        'has_token': False,
-        'jira_url': '',
-        'jira_email': '',
-        'has_jira_token': False,
-        'jira_project_key': ''
+        'has_token': False
     })
 
-@app.route('/api/jira/issues')
-def get_jira_issues():
-    """Get Jira issues assigned to the user"""
-    status = request.args.get('status', 'open')  # open, in_progress, done
-    settings = Settings.query.first()
+@app.route('/api/fcp/create-inventory-branch', methods=['POST'])
+def create_inventory_branch():
+    """
+    Create inventory branch for services that require it
     
-    if not settings or not settings.jira_api_token or not settings.jira_url:
-        return jsonify({'error': 'Jira not configured. Please configure in Settings.'}), 400
-    
-    # Map status to Jira status names
-    status_map = {
-        'open': ['To Do', 'Open', 'Backlog'],
-        'in_progress': ['In Progress', 'In Review'],
-        'done': ['Done', 'Closed', 'Resolved']
+    Request body:
+    {
+        "service_name": "ngdc-tsdb-cluster",
+        "dc": "dal12",
+        "base_branch": "fcp-dev"
     }
     
-    jira_statuses = status_map.get(status, ['To Do', 'Open'])
+    Response:
+    {
+        "success": true,
+        "branch_name": "fcp-dal1201",
+        "repository": "ngdc-tsdb-cluster-inventory",
+        "url": "https://github.ibm.com/nettools/ngdc-tsdb-cluster-inventory/tree/fcp-dal1201",
+        "message": "Branch created successfully"
+    }
+    """
+    data = request.json
+    service_name = data.get('service_name')
+    dc = data.get('dc')
+    base_branch = data.get('base_branch', 'fcp-dev')
     
-    # Build JQL query
-    jql_parts = []
-    if settings.jira_email:
-        jql_parts.append(f'assignee = "{settings.jira_email}"')
-    if settings.jira_project_key:
-        jql_parts.append(f'project = "{settings.jira_project_key}"')
-    
-    # Add status filter
-    status_filter = ' OR '.join([f'status = "{s}"' for s in jira_statuses])
-    jql_parts.append(f'({status_filter})')
-    
-    jql = ' AND '.join(jql_parts)
-    jql += ' ORDER BY updated DESC'
-    
-    # Jira REST API endpoint - using the new /search/jql endpoint
-    url = f'{settings.jira_url.rstrip("/")}/rest/api/3/search/jql'
-    
-    # Basic auth with email and API token
-    from base64 import b64encode
-    credentials = b64encode(f'{settings.jira_email}:{settings.jira_api_token}'.encode()).decode()
-    
-    headers = {
-        'Authorization': f'Basic {credentials}',
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
+    # Service to repository mapping
+    INVENTORY_REPOS = {
+        'ngdc-tsdb-cluster': 'ngdc-tsdb-cluster-inventory',
+        # Add more services here as needed
     }
     
-    params = {
-        'jql': jql,
-        'maxResults': 50,
-        'fields': 'summary,status,priority,assignee,created,updated,description,issuetype'
-    }
+    if service_name not in INVENTORY_REPOS:
+        return jsonify({
+            'success': False,
+            'error': f'No inventory repository configured for {service_name}'
+        }), 400
+    
+    repo_name = INVENTORY_REPOS[service_name]
+    # Normalize DC name (e.g., dal12 -> dal1201)
+    dc_full = f"{dc}01" if len(dc) == 5 else dc
+    branch_name = f"fcp-{dc_full}"
     
     try:
-        print(f"DEBUG: Jira URL: {url}")
-        print(f"DEBUG: JQL Query: {jql}")
-        print(f"DEBUG: Email: {settings.jira_email}")
+        # Use /tmp for temporary git operations
+        repo_path = f"/tmp/{repo_name}"
+        repo_url = f"git@github.ibm.com:nettools/{repo_name}.git"
         
-        response = requests.get(url, headers=headers, params=params, verify=True, timeout=10)
+        app.logger.info(f"Creating inventory branch {branch_name} for {service_name} in {repo_name}")
         
-        print(f"DEBUG: Response status: {response.status_code}")
-        print(f"DEBUG: Response headers: {response.headers.get('content-type')}")
-        
-        if response.status_code == 200:
-            data = response.json()
-            issues = []
-            for issue in data.get('issues', []):
-                fields = issue.get('fields', {})
-                issues.append({
-                    'key': issue.get('key'),
-                    'id': issue.get('id'),
-                    'summary': fields.get('summary'),
-                    'description': fields.get('description', {}).get('content', [{}])[0].get('content', [{}])[0].get('text', '') if isinstance(fields.get('description'), dict) else '',
-                    'status': fields.get('status', {}).get('name'),
-                    'priority': fields.get('priority', {}).get('name', 'Medium'),
-                    'type': fields.get('issuetype', {}).get('name'),
-                    'created': fields.get('created'),
-                    'updated': fields.get('updated'),
-                    'url': f"{settings.jira_url.rstrip('/')}/browse/{issue.get('key')}"
-                })
-            return jsonify(issues)
-        else:
-            error_msg = f'Jira API error: {response.status_code}'
-            try:
-                error_detail = response.json()
-                error_msg += f' - {error_detail.get("errorMessages", ["Unknown error"])[0]}'
-            except:
-                error_msg += f' - {response.text[:200]}'
-            print(f"DEBUG: Error response: {error_msg}")
-            return jsonify({'error': error_msg}), response.status_code
-    except requests.exceptions.JSONDecodeError as e:
-        error_msg = f'Invalid JSON response from Jira. Check your Jira URL and credentials. Response: {response.text[:200]}'
-        print(f"DEBUG: JSON decode error: {error_msg}")
-        return jsonify({'error': error_msg}), 500
-    except requests.exceptions.RequestException as e:
-        error_msg = f'Connection error: {str(e)}. Check your Jira URL and network connection.'
-        print(f"DEBUG: Request exception: {error_msg}")
-        return jsonify({'error': error_msg}), 500
-    except Exception as e:
-        error_msg = f'Unexpected error: {str(e)}'
-        print(f"DEBUG: Unexpected error: {error_msg}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': error_msg}), 500
-
-@app.route('/api/tasks/from-jira/<string:issue_key>', methods=['POST'])
-def create_task_from_jira(issue_key):
-    """Create a task from a Jira issue"""
-    settings = Settings.query.first()
-    
-    if not settings or not settings.jira_api_token or not settings.jira_url:
-        return jsonify({'error': 'Jira not configured'}), 400
-    
-    # Get issue details from Jira
-    url = f'{settings.jira_url.rstrip("/")}/rest/api/3/issue/{issue_key}'
-    
-    from base64 import b64encode
-    credentials = b64encode(f'{settings.jira_email}:{settings.jira_api_token}'.encode()).decode()
-    
-    headers = {
-        'Authorization': f'Basic {credentials}',
-        'Accept': 'application/json'
-    }
-    
-    try:
-        response = requests.get(url, headers=headers, verify=True)
-        if response.status_code == 200:
-            issue = response.json()
-            fields = issue.get('fields', {})
-            
-            # Extract description text
-            description = ''
-            desc_data = fields.get('description', {})
-            if isinstance(desc_data, dict) and 'content' in desc_data:
-                for content_block in desc_data.get('content', []):
-                    if content_block.get('type') == 'paragraph':
-                        for text_item in content_block.get('content', []):
-                            if text_item.get('type') == 'text':
-                                description += text_item.get('text', '') + '\n'
-            
-            task = Task(
-                title=f"[{issue_key}] {fields.get('summary', '')}",
-                description=description.strip(),
-                status='pending',
-                github_issue_number=issue_key,
-                github_issue_url=f"{settings.jira_url.rstrip('/')}/browse/{issue_key}",
-                priority=fields.get('priority', {}).get('name', 'Medium').lower()
+        # Clone or update repository
+        if not os.path.exists(repo_path):
+            app.logger.info(f"Cloning repository {repo_name}...")
+            result = subprocess.run(
+                ['git', 'clone', '--depth', '1', '--single-branch', '--branch', base_branch, repo_url, repo_path],
+                capture_output=True,
+                text=True,
+                timeout=60
             )
-            db.session.add(task)
-            db.session.commit()
-            return jsonify({'id': task.id, 'message': 'Task created from Jira issue'})
-        else:
-            return jsonify({'error': f'Jira API error: {response.status_code}'}), response.status_code
+            if result.returncode != 0:
+                app.logger.error(f"Failed to clone: {result.stderr}")
+                return jsonify({
+                    'success': False,
+                    'error': f'Failed to clone repository: {result.stderr}'
+                }), 500
+        
+        # Save current directory
+        original_dir = os.getcwd()
+        
+        try:
+            # Change to repo directory
+            os.chdir(repo_path)
+            
+            # Fetch latest changes for the specific branch
+            app.logger.info(f"Fetching branch {branch_name}...")
+            subprocess.run(['git', 'fetch', 'origin', f'{branch_name}:{branch_name}'],
+                          capture_output=True, timeout=30)
+            
+            # Check if branch exists locally
+            branch_check = subprocess.run(
+                ['git', 'rev-parse', '--verify', branch_name],
+                capture_output=True,
+                timeout=5
+            )
+            
+            if branch_check.returncode == 0:
+                app.logger.info(f"Branch {branch_name} already exists")
+                return jsonify({
+                    'success': True,
+                    'branch_name': branch_name,
+                    'repository': repo_name,
+                    'url': f'https://github.ibm.com/nettools/{repo_name}/tree/{branch_name}',
+                    'message': 'Branch already exists',
+                    'already_exists': True
+                })
+            
+            # Ensure we're on base branch
+            app.logger.info(f"Checking out {base_branch}...")
+            subprocess.run(['git', 'checkout', base_branch], check=True, timeout=10, capture_output=True)
+            subprocess.run(['git', 'pull', 'origin', base_branch], check=True, timeout=30, capture_output=True)
+            
+            # Create new branch
+            app.logger.info(f"Creating branch {branch_name}...")
+            subprocess.run(['git', 'checkout', '-b', branch_name], check=True, timeout=10, capture_output=True)
+            
+            # Push to remote
+            app.logger.info(f"Pushing branch {branch_name} to remote...")
+            subprocess.run(['git', 'push', 'origin', branch_name], check=True, timeout=30, capture_output=True)
+            
+            app.logger.info(f"Successfully created branch {branch_name}")
+            return jsonify({
+                'success': True,
+                'branch_name': branch_name,
+                'repository': repo_name,
+                'url': f'https://github.ibm.com/nettools/{repo_name}/tree/{branch_name}',
+                'message': 'Branch created successfully'
+            })
+            
+        finally:
+            # Always return to original directory
+            os.chdir(original_dir)
+        
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False,
+            'error': 'Git operation timed out. Please try again or create the branch manually.'
+        }), 500
+    except subprocess.CalledProcessError as e:
+        error_msg = e.stderr.decode('utf-8') if hasattr(e, 'stderr') and e.stderr else str(e)
+        return jsonify({
+            'success': False,
+            'error': f'Git command failed: {error_msg}'
+        }), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'success': False,
+            'error': f'Unexpected error: {str(e)}'
+        }), 500
+
+
 
 @app.route('/api/tasks/<int:task_id>/mute', methods=['POST'])
 def mute_task(task_id):
@@ -1145,29 +1157,21 @@ def fcp_search_toolchains():
     try:
         data = request.get_json()
         service_name = data.get('service_name', '').strip()
-        pipeline_type = data.get('pipeline_type')
         
-        # Default to 'cd' if pipeline_type is not provided (for Create mode)
-        if not pipeline_type:
-            pipeline_type = 'cd'
-        
-        print(f"DEBUG: Searching for service: {service_name}, pipeline_type: {pipeline_type}")
+        print(f"DEBUG: Searching for service: {service_name}")
         
         if not service_name:
             return jsonify({'success': False, 'error': 'Service name is required'})
         
-        # Use IBM Cloud CLI to search for toolchains
+        # Use IBM Cloud CLI to search for toolchains (same as bash script)
         import subprocess
         import json as json_module
         
-        # Determine the toolchain suffix based on pipeline type
-        toolchain_suffix = '-ci' if pipeline_type == 'ci' else '-cd'
-        
-        # Get all toolchains and filter with jq (case-insensitive search)
-        cmd = f'''ibmcloud dev toolchains --output json | jq -r --arg service "{service_name.lower()}" --arg suffix "{toolchain_suffix}" '
+        # Get all toolchains and filter with jq (same as bash script)
+        cmd = f'''ibmcloud dev toolchains --output json | jq -r --arg service "{service_name}" '
             .items[]
-            | select(.name | ascii_downcase | contains($service))
-            | select(.name | contains($suffix))
+            | select(.name | contains($service))
+            | select(.name | contains("-cd"))
             | {{name, toolchain_guid}}
         ' | jq -s .'''
         
@@ -1175,31 +1179,22 @@ def fcp_search_toolchains():
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
         
         print(f"DEBUG: Command return code: {result.returncode}")
-        print(f"DEBUG: Command stdout: {result.stdout[:500] if result.stdout else 'empty'}")
+        print(f"DEBUG: Command stdout: {result.stdout[:200] if result.stdout else 'empty'}")
         print(f"DEBUG: Command stderr: {result.stderr[:200] if result.stderr else 'empty'}")
         
         if result.returncode != 0:
             return jsonify({'success': False, 'error': f'Command failed: {result.stderr}'})
         
-        if not result.stdout.strip() or result.stdout.strip() == '[]':
-            # Try to get all toolchains to help debug
-            debug_cmd = f'''ibmcloud dev toolchains --output json | jq -r '.items[] | select(.name | contains("{toolchain_suffix}")) | .name' | head -10'''
-            debug_result = subprocess.run(debug_cmd, shell=True, capture_output=True, text=True, timeout=30)
-            available_examples = debug_result.stdout.strip().split('\n')[:5] if debug_result.stdout else []
-            
-            error_msg = f'No {pipeline_type.upper()} toolchains found for "{service_name}".'
-            if available_examples:
-                error_msg += f' Available {pipeline_type.upper()} toolchains include: {", ".join(available_examples)}'
-            
-            return jsonify({'success': False, 'error': error_msg})
+        if not result.stdout.strip():
+            return jsonify({'success': False, 'error': 'No toolchains found'})
         
         # Parse JSON output
         toolchains = json_module.loads(result.stdout)
         
-        print(f"DEBUG: Found {len(toolchains)} {pipeline_type.upper()} toolchains: {toolchains}")
+        print(f"DEBUG: Found {len(toolchains)} toolchains: {toolchains}")
         
         if not toolchains:
-            return jsonify({'success': False, 'error': f'No {pipeline_type.upper()} toolchains found for "{service_name}"'})
+            return jsonify({'success': False, 'error': 'No toolchains found'})
         
         return jsonify({'success': True, 'toolchains': toolchains})
         
@@ -1215,9 +1210,8 @@ def fcp_get_triggers():
     try:
         data = request.get_json()
         toolchain_guid = data.get('toolchain_guid')
-        pipeline_type = data.get('pipeline_type', 'cd')  # Default to 'cd' for backward compatibility
         
-        print(f"DEBUG: Getting {pipeline_type.upper()} triggers for toolchain: {toolchain_guid}")
+        print(f"DEBUG: Getting triggers for toolchain: {toolchain_guid}")
         
         if not toolchain_guid:
             return jsonify({'success': False, 'error': 'Toolchain GUID is required'})
@@ -1247,34 +1241,20 @@ def fcp_get_triggers():
             print(f"DEBUG: API error: {response.status_code} - {response.text}")
             return jsonify({'success': False, 'error': f'API error: {response.status_code}'})
         
-        # Extract triggers based on pipeline type
+        # Extract manual triggers
         triggers_data = response.json()
         triggers = []
         
         for trigger in triggers_data.get('triggers', []):
-            trigger_type = trigger.get('type', '')
-            
-            # Filter based on pipeline type
-            if pipeline_type == 'cd':
-                # CD pipelines: manual triggers
-                if trigger_type == 'manual':
-                    triggers.append({
-                        'id': trigger.get('id'),
-                        'name': trigger.get('name'),
-                        'type': trigger_type,
-                        'enabled': trigger.get('enabled', True)
-                    })
-            elif pipeline_type == 'ci':
-                # CI pipelines: git, scm, github, gitlab triggers
-                if trigger_type in ['git', 'scm', 'github', 'gitlab', 'generic']:
-                    triggers.append({
-                        'id': trigger.get('id'),
-                        'name': trigger.get('name'),
-                        'type': trigger_type,
-                        'enabled': trigger.get('enabled', True)
-                    })
+            if trigger.get('type') == 'manual':
+                triggers.append({
+                    'id': trigger.get('id'),
+                    'name': trigger.get('name'),
+                    'type': trigger.get('type'),
+                    'enabled': trigger.get('enabled', True)
+                })
         
-        print(f"DEBUG: Found {len(triggers)} {pipeline_type.upper()} triggers")
+        print(f"DEBUG: Found {len(triggers)} manual triggers")
         
         return jsonify({'success': True, 'triggers': triggers})
         
@@ -1351,14 +1331,112 @@ def fcp_get_trigger_properties():
             'success': True,
             'properties': formatted_properties,
             'global_properties': global_properties,
-            'trigger_name': trigger_data.get('name'),
             'pipeline_id': pipeline_id
         })
-        
     except Exception as e:
-        import traceback
-        print(f"DEBUG: Exception: {str(e)}")
-        print(traceback.format_exc())
+        print(f"DEBUG: Error getting trigger properties: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/fcp/get-multi-trigger-properties', methods=['POST'])
+def fcp_get_multi_trigger_properties():
+    """Get properties from multiple triggers and show differences"""
+    try:
+        data = request.get_json()
+        toolchain_guid = data.get('toolchain_guid')
+        trigger_ids = data.get('trigger_ids', [])  # Array of trigger IDs
+        
+        print(f"DEBUG: Getting properties for {len(trigger_ids)} triggers")
+        
+        if not toolchain_guid or not trigger_ids:
+            return jsonify({'success': False, 'error': 'Toolchain GUID and Trigger IDs are required'})
+        
+        # Get IAM token
+        iam_token = get_iam_token()
+        if not iam_token:
+            return jsonify({'success': False, 'error': 'Failed to get IAM token'})
+        
+        # Get pipeline ID
+        pipeline_id = get_pipeline_id(toolchain_guid, iam_token)
+        if not pipeline_id:
+            return jsonify({'success': False, 'error': 'Failed to get pipeline ID'})
+        
+        headers = {
+            'Authorization': f'Bearer {iam_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        # Fetch properties from all triggers
+        all_trigger_properties = []
+        trigger_names = []
+        
+        for trigger_id in trigger_ids:
+            url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}/triggers/{trigger_id}"
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                trigger_data = response.json()
+                trigger_names.append(trigger_data.get('name', 'Unknown'))
+                
+                # Convert properties to dict for easy comparison
+                props_dict = {}
+                for prop in trigger_data.get('properties', []):
+                    props_dict[prop.get('name')] = {
+                        'value': prop.get('value', ''),
+                        'type': prop.get('type', 'text')
+                    }
+                all_trigger_properties.append(props_dict)
+        
+        # Get global pipeline properties
+        pipeline_url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}"
+        pipeline_response = requests.get(pipeline_url, headers=headers, timeout=30)
+        
+        global_properties = {}
+        if pipeline_response.status_code == 200:
+            pipeline_data = pipeline_response.json()
+            for prop in pipeline_data.get('properties', []):
+                global_properties[prop.get('name')] = prop.get('value', '')
+        
+        # Find all unique parameter names
+        all_param_names = set()
+        for props in all_trigger_properties:
+            all_param_names.update(props.keys())
+        
+        # Compare parameters across triggers
+        parameter_comparison = []
+        for param_name in sorted(all_param_names):
+            values = []
+            param_type = 'text'
+            
+            for i, props in enumerate(all_trigger_properties):
+                if param_name in props:
+                    values.append(props[param_name]['value'])
+                    param_type = props[param_name]['type']
+                else:
+                    values.append('')
+            
+            # Check if all values are the same
+            unique_values = set(values)
+            is_different = len(unique_values) > 1
+            
+            parameter_comparison.append({
+                'name': param_name,
+                'values': values,
+                'type': param_type,
+                'is_different': is_different,
+                'unique_values': list(unique_values)
+            })
+        
+        print(f"DEBUG: Compared {len(parameter_comparison)} parameters across {len(trigger_ids)} triggers")
+        
+        return jsonify({
+            'success': True,
+            'trigger_names': trigger_names,
+            'parameter_comparison': parameter_comparison,
+            'global_properties': global_properties,
+            'pipeline_id': pipeline_id
+        })
+    except Exception as e:
+        print(f"DEBUG: Error getting multi-trigger properties: {str(e)}")
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/fcp/trigger-pipeline', methods=['POST'])
@@ -1376,17 +1454,14 @@ def fcp_trigger_pipeline_wizard():
         if not toolchain_guid or not trigger_id:
             return jsonify({'success': False, 'error': 'Toolchain GUID and Trigger ID are required'})
         
-        # Get IAM token
         iam_token = get_iam_token()
         if not iam_token:
             return jsonify({'success': False, 'error': 'Failed to get IAM token'})
         
-        # Get pipeline ID
         pipeline_id = get_pipeline_id(toolchain_guid, iam_token)
         if not pipeline_id:
             return jsonify({'success': False, 'error': 'Failed to get pipeline ID'})
         
-        # Get trigger details to get the trigger name
         trigger_url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}/triggers/{trigger_id}"
         headers = {
             'Authorization': f'Bearer {iam_token}',
@@ -1402,17 +1477,14 @@ def fcp_trigger_pipeline_wizard():
         
         print(f"DEBUG: Trigger name: {trigger_name}")
         
-        # Trigger pipeline via API
         run_url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}/pipeline_runs"
         
-        # Build payload with trigger name
         payload = {
             'trigger': {
                 'name': trigger_name
             }
         }
         
-        # Add property overrides if any
         if property_overrides:
             payload['trigger']['properties'] = property_overrides
         
@@ -1445,6 +1517,78 @@ def fcp_trigger_pipeline_wizard():
         print(f"DEBUG: Exception: {str(e)}")
         print(traceback.format_exc())
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/fcp/update-trigger-properties', methods=['POST'])
+def fcp_update_trigger_properties():
+    """Update an existing trigger's properties without executing it"""
+    try:
+        data = request.get_json()
+        toolchain_guid = data.get('toolchain_guid')
+        trigger_id = data.get('trigger_id')
+        property_overrides = data.get('properties', {}) or {}
+
+        print(f"DEBUG: Updating trigger properties - trigger_id: {trigger_id}")
+        print(f"DEBUG: Property overrides: {property_overrides}")
+
+        if not toolchain_guid or not trigger_id:
+            return jsonify({'success': False, 'error': 'Toolchain GUID and Trigger ID are required'})
+
+        iam_token = get_iam_token()
+        if not iam_token:
+            return jsonify({'success': False, 'error': 'Failed to get IAM token'})
+
+        pipeline_id = get_pipeline_id(toolchain_guid, iam_token)
+        if not pipeline_id:
+            return jsonify({'success': False, 'error': 'Failed to get pipeline ID'})
+
+        headers = {
+            'Authorization': f'Bearer {iam_token}',
+            'Content-Type': 'application/json'
+        }
+
+        trigger_url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}/triggers/{trigger_id}"
+        trigger_response = requests.get(trigger_url, headers=headers, timeout=30)
+        if trigger_response.status_code != 200:
+            return jsonify({'success': False, 'error': 'Failed to get trigger details', 'details': trigger_response.text})
+
+        trigger_data = trigger_response.json()
+        existing_properties = trigger_data.get('properties', []) or []
+        update_results = []
+
+        for prop_name, prop_value in property_overrides.items():
+            matching_prop = next((prop for prop in existing_properties if prop.get('name') == prop_name), None)
+            property_payload = {
+                'name': prop_name,
+                'type': (matching_prop or {}).get('type', 'text'),
+                'value': prop_value
+            }
+            property_url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}/triggers/{trigger_id}/properties/{prop_name}"
+            print(f"DEBUG: Update trigger property payload for {prop_name}: {json.dumps(property_payload, indent=2)}")
+
+            update_response = requests.put(property_url, headers=headers, json=property_payload, timeout=30)
+            if update_response.status_code not in [200, 201]:
+                print(f"DEBUG: Update trigger API error: {update_response.status_code} - {update_response.text}")
+                return jsonify({
+                    'success': False,
+                    'error': f'API error: {update_response.status_code}',
+                    'details': update_response.text
+                })
+
+            update_results.append(update_response.json())
+
+        return jsonify({
+            'success': True,
+            'trigger_id': trigger_id,
+            'trigger_name': trigger_data.get('name'),
+            'updated_properties': property_overrides,
+            'results': update_results
+        })
+    except Exception as e:
+        print(f"DEBUG: Error updating trigger properties: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/api/fcp/pipeline-status', methods=['POST'])
 def fcp_pipeline_status():
     """Get pipeline run status and logs"""
@@ -1562,36 +1706,34 @@ def get_pipeline_id(toolchain_guid, iam_token):
         print(f"Error getting pipeline ID: {e}")
         return None
 
-def fetch_template_trigger(iam_token, dc):
-    """Fetch template trigger from log-alerts"""
+def fetch_template_trigger(iam_token, pipeline_id, template_dc='syd04'):
+    """Fetch template trigger from the current pipeline using a reference DC"""
     try:
-        log_alerts_pipeline_id = "a00fb3e6-c0ca-4e93-ba45-8f32c395790b"
-        template_dc = "syd05"
-        
-        url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{log_alerts_pipeline_id}/triggers"
+        url = f"https://api.us-south.devops.cloud.ibm.com/pipeline/v2/tekton_pipelines/{pipeline_id}/triggers"
         headers = {
             'Authorization': f'Bearer {iam_token}',
             'Content-Type': 'application/json'
         }
-        
-        print(f"DEBUG: Fetching template from {url}")
+
         response = requests.get(url, headers=headers, timeout=30)
-        print(f"DEBUG: Response status: {response.status_code}")
-        
-        if response.status_code == 200:
-            triggers = response.json().get('triggers', [])
-            print(f"DEBUG: Found {len(triggers)} triggers")
-            # Pattern is "FCP-prod syd05" not "FCP-prod (syd05)"
-            pattern = f"FCP-prod {template_dc}"
-            print(f"DEBUG: Looking for pattern: {pattern}")
-            for trigger in triggers:
-                trigger_name = trigger.get('name', '')
-                if pattern in trigger_name:
-                    print(f"DEBUG: Found matching template trigger: {trigger_name}")
-                    return trigger
-            print(f"DEBUG: No matching trigger found for pattern '{pattern}'")
-        else:
-            print(f"DEBUG: API error: {response.text}")
+        if response.status_code != 200:
+            print(f"DEBUG: Failed to fetch triggers for template lookup: {response.status_code} {response.text[:500]}")
+            return None
+
+        triggers = response.json().get('triggers', [])
+        patterns = [
+            f"FCP-prod {template_dc}",
+            f"FCP {template_dc}",
+            template_dc
+        ]
+
+        for trigger in triggers:
+            trigger_name = trigger.get('name', '')
+            if any(pattern in trigger_name for pattern in patterns):
+                print(f"DEBUG: Found template trigger for {template_dc}: {trigger_name}")
+                return trigger
+
+        print(f"DEBUG: No template trigger found for reference DC '{template_dc}'")
         return None
     except Exception as e:
         print(f"Error fetching template trigger: {e}")
@@ -1600,7 +1742,12 @@ def fetch_template_trigger(iam_token, dc):
         return None
 
 def get_worker_config(toolchain_guid, iam_token, dc=None):
-    """Get worker configuration from toolchain for specific DC"""
+    """Get worker configuration from toolchain for specific DC
+    Returns:
+        - Single worker dict if exactly one match found
+        - List of worker dicts if multiple matches found
+        - None if no matches found
+    """
     try:
         result = subprocess.run(
             ['ibmcloud', 'dev', 'toolchain-get', toolchain_guid, '--output', 'json'],
@@ -1612,25 +1759,34 @@ def get_worker_config(toolchain_guid, iam_token, dc=None):
             toolchain_data = json.loads(result.stdout)
             services = toolchain_data.get('items', [{}])[0].get('services', [])
             
-            # If DC is specified, look for DC-specific worker first
+            # If DC is specified, look for workers matching the DC pattern
             if dc:
-                expected_worker_name = f'fcp-{dc}-nettools-cd-worker'
-                print(f"DEBUG: Looking for worker: {expected_worker_name}")
+                dc_prefix = f'fcp-{dc}'
+                print(f"DEBUG: Looking for workers starting with: {dc_prefix}")
                 
+                matching_workers = []
                 for service in services:
                     if service.get('service_id') == 'private_worker':
                         worker_name = service.get('parameters', {}).get('name', '')
                         print(f"DEBUG: Found worker: {worker_name}")
-                        if worker_name == expected_worker_name:
-                            print(f"DEBUG: Matched DC-specific worker: {worker_name}")
-                            return {
+                        
+                        # Check if worker name starts with the DC prefix
+                        if worker_name.lower().startswith(dc_prefix.lower()):
+                            print(f"DEBUG: Matched DC worker: {worker_name}")
+                            matching_workers.append({
                                 'id': service.get('instance_id'),
                                 'name': worker_name
-                            }
+                            })
                 
-                # If DC-specific worker not found, return error
-                print(f"DEBUG: DC-specific worker '{expected_worker_name}' not found")
-                return None
+                if len(matching_workers) == 0:
+                    print(f"DEBUG: No workers found matching pattern '{dc_prefix}*'")
+                    return None
+                elif len(matching_workers) == 1:
+                    print(f"DEBUG: Found single matching worker: {matching_workers[0]['name']}")
+                    return matching_workers[0]
+                else:
+                    print(f"DEBUG: Found {len(matching_workers)} matching workers")
+                    return matching_workers  # Return list for caller to handle selection
             
             # If no DC specified, return first worker found
             for service in services:
@@ -1644,44 +1800,369 @@ def get_worker_config(toolchain_guid, iam_token, dc=None):
         print(f"Error getting worker config: {e}")
         return None
 
-def create_worker_integration(toolchain_guid, iam_token, dc, service_name):
-    """Create a new private worker integration in the toolchain"""
+def get_toolchain_services(toolchain_guid):
+    """Get raw toolchain services from IBM Cloud CLI"""
     try:
-        worker_name = f"FCP-{dc.upper()}-{service_name.upper()}-TEKTON-CDWORKER"
-        print(f"DEBUG: Creating worker: {worker_name}")
-        
-        # Create worker using IBM Cloud CLI
         result = subprocess.run(
-            [
-                'ibmcloud', 'dev', 'toolchain-service-create',
-                toolchain_guid,
-                '--service-id', 'private_worker',
-                '--parameters', json.dumps({
-                    'name': worker_name,
-                    'worker_queue_identifier': worker_name.lower(),
-                    'worker_queue_credentials': ''
-                }),
-                '--output', 'json'
-            ],
+            ['ibmcloud', 'dev', 'toolchain-get', toolchain_guid, '--output', 'json'],
             capture_output=True,
             text=True,
+            timeout=30
+        )
+        if result.returncode != 0:
+            print(f"ERROR: Failed to get toolchain services: {result.stderr}")
+            return None
+
+        toolchain_data = json.loads(result.stdout)
+        return toolchain_data.get('items', [{}])[0].get('services', [])
+    except Exception as e:
+        print(f"Error getting toolchain services: {e}")
+        return None
+
+
+def parse_secrets_manager_crn(secret_crn):
+    secret_parts = secret_crn.split(':')
+    if len(secret_parts) < 10:
+        return None
+
+    return {
+        'instance_id': secret_parts[7],
+        'region': secret_parts[5],
+        'secret_id': secret_parts[-1]
+    }
+
+
+def fetch_secret_payload_from_crn(secret_crn, iam_token):
+    parsed = parse_secrets_manager_crn(secret_crn)
+    if not parsed:
+        return {
+            'success': False,
+            'error': 'Invalid Secrets Manager CRN format',
+            'secret_crn': secret_crn
+        }
+
+    secret_url = f"https://{parsed['instance_id']}.{parsed['region']}.secrets-manager.appdomain.cloud/api/v2/secrets/{parsed['secret_id']}"
+    response = requests.get(
+        secret_url,
+        headers={
+            'Authorization': f'Bearer {iam_token}',
+            'Accept': 'application/json'
+        },
+        timeout=30
+    )
+
+    if response.status_code != 200:
+        return {
+            'success': False,
+            'error': f'Failed to fetch worker credentials from Secrets Manager ({response.status_code})',
+            'details': response.text[:500]
+        }
+
+    secret_payload = response.json().get('payload')
+    if not secret_payload:
+        return {
+            'success': False,
+            'error': 'Worker credentials payload missing in Secrets Manager secret'
+        }
+
+    return {
+        'success': True,
+        'credentials': secret_payload
+    }
+
+
+def get_secrets_manager_providers(toolchain_guid):
+    services = get_toolchain_services(toolchain_guid)
+    if services is None:
+        return []
+
+    providers = []
+    for service in services:
+        if service.get('service_id') != 'secretsmanager':
+            continue
+
+        parameters = service.get('parameters', {}) or {}
+        provider_name = parameters.get('name') or service.get('name') or 'Secrets Manager'
+        instance_crn = parameters.get('instance_crn') or parameters.get('crn') or ''
+        region = parameters.get('region') or 'us-south'
+        instance_id = ''
+
+        if instance_crn:
+            crn_parts = instance_crn.split(':')
+            if len(crn_parts) > 7:
+                instance_id = crn_parts[7]
+            if len(crn_parts) > 5 and crn_parts[5]:
+                region = crn_parts[5]
+
+        providers.append({
+            'id': service.get('instance_id') or instance_id or provider_name,
+            'instance_id': instance_id,
+            'name': provider_name,
+            'instance_crn': instance_crn,
+            'region': region,
+            'private_endpoint': parameters.get('private_endpoint') or '',
+            'public_endpoint': parameters.get('public_endpoint') or '',
+            'endpoint': parameters.get('endpoint') or '',
+            'secrets': parameters.get('secrets', []) or []
+        })
+
+    return providers
+
+
+def get_secret_groups_for_provider(provider, iam_token):
+    region = provider.get('region') or 'us-south'
+    instance_id = provider.get('instance_id') or ''
+
+    if not instance_id:
+        return {
+            'success': False,
+            'error': 'Secrets Manager instance ID not found for selected provider'
+        }
+
+    base_url = (
+        provider.get('public_endpoint')
+        or provider.get('endpoint')
+        or provider.get('private_endpoint')
+        or f'https://{instance_id}.{region}.secrets-manager.appdomain.cloud'
+    ).rstrip('/')
+
+    response = requests.get(
+        f'{base_url}/api/v2/secret_groups',
+        headers={
+            'Authorization': f'Bearer {iam_token}',
+            'Accept': 'application/json'
+        },
+        timeout=30
+    )
+
+    if response.status_code != 200:
+        return {
+            'success': False,
+            'error': f'Failed to fetch secret groups ({response.status_code})',
+            'details': response.text[:500]
+        }
+
+    payload = response.json()
+    resources = payload.get('secret_groups') or payload.get('resources') or []
+    groups = [
+        {
+            'id': group.get('id') or group.get('name') or '',
+            'name': group.get('name') or group.get('id') or 'Unnamed group'
+        }
+        for group in resources
+        if group.get('id') or group.get('name')
+    ]
+
+    groups.sort(key=lambda item: item['name'].lower())
+    return {
+        'success': True,
+        'groups': groups
+    }
+
+
+def find_secret_by_name(provider, group_id, secret_name, iam_token):
+    region = provider.get('region') or 'us-south'
+    instance_id = provider.get('instance_id') or ''
+
+    if not instance_id:
+        return {
+            'success': False,
+            'error': 'Secrets Manager instance ID not found for selected provider'
+        }
+
+    base_url = (
+        provider.get('public_endpoint')
+        or provider.get('endpoint')
+        or provider.get('private_endpoint')
+        or f'https://{instance_id}.{region}.secrets-manager.appdomain.cloud'
+    ).rstrip('/')
+
+    response = requests.get(
+        f'{base_url}/api/v2/secrets',
+        headers={
+            'Authorization': f'Bearer {iam_token}',
+            'Accept': 'application/json'
+        },
+        params={
+            'groups': group_id,
+            'search': secret_name
+        },
+        timeout=30
+    )
+
+    if response.status_code != 200:
+        return {
+            'success': False,
+            'error': f'Failed to fetch secrets ({response.status_code})',
+            'details': response.text[:500]
+        }
+
+    payload = response.json()
+    resources = payload.get('resources') or payload.get('secrets') or []
+    normalized_secret_name = secret_name.strip().lower()
+    matched_secret = next(
+        (
+            secret for secret in resources
+            if (secret.get('name') or '').strip().lower() == normalized_secret_name
+        ),
+        None
+    )
+
+    if not matched_secret:
+        return {
+            'success': False,
+            'error': f'Secret "{secret_name}" not found in selected group'
+        }
+
+    return {
+        'success': True,
+        'secret': matched_secret
+    }
+
+
+def get_private_worker_credentials_from_toolchain(toolchain_guid, dc):
+    """Resolve private worker queue credentials for a DC from toolchain integrations"""
+    try:
+        providers = get_secrets_manager_providers(toolchain_guid)
+        if not providers:
+            return {
+                'success': False,
+                'error': 'Secrets Manager integration not found in toolchain'
+            }
+
+        dc_secret_key = f'FCP-{dc}-SERVICEID-TEKTON-CDWORKER'.lower()
+        matching_secret_ref = None
+
+        for provider in providers:
+            for secret_ref in provider.get('secrets', []):
+                secret_name = (secret_ref.get('name') or '').lower()
+                if secret_name == dc_secret_key:
+                    matching_secret_ref = secret_ref
+                    break
+            if matching_secret_ref:
+                break
+
+        if not matching_secret_ref:
+            return {
+                'success': False,
+                'error': f'Secret reference not found in toolchain for DC {dc}',
+                'secret_name': f'FCP-{dc}-SERVICEID-TEKTON-CDWORKER',
+                'needs_secret_selection': True,
+                'providers': [
+                    {
+                        'id': provider['id'],
+                        'name': provider['name']
+                    }
+                    for provider in providers
+                ]
+            }
+
+        secret_crn = matching_secret_ref.get('crn')
+        if not secret_crn:
+            return {
+                'success': False,
+                'error': f'Secret CRN missing for DC {dc}',
+                'secret_name': f'FCP-{dc}-SERVICEID-TEKTON-CDWORKER'
+            }
+
+        iam_token = get_iam_token()
+        if not iam_token:
+            return {
+                'success': False,
+                'error': 'Failed to get IAM token'
+            }
+
+        fetch_result = fetch_secret_payload_from_crn(secret_crn, iam_token)
+        if not fetch_result.get('success'):
+            return fetch_result
+
+        return {
+            'success': True,
+            'credentials': fetch_result['credentials'],
+            'secret_name': f'FCP-{dc}-SERVICEID-TEKTON-CDWORKER'
+        }
+    except Exception as e:
+        print(f"Error resolving private worker credentials: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
+def create_worker_integration(toolchain_guid, iam_token, dc, service_name):
+    """Create a new private worker integration in the toolchain using REST API"""
+    try:
+        worker_name = f"fcp-{dc}-nettools-cd-worker-{normalize_service_name(service_name)}"
+        print(f"DEBUG: Creating worker via REST API: {worker_name}")
+
+        existing_worker = get_worker_config(toolchain_guid, iam_token, dc)
+        if isinstance(existing_worker, dict):
+            return {
+                'success': True,
+                'worker': existing_worker,
+                'created': False
+            }
+        if isinstance(existing_worker, list):
+            return {
+                'success': False,
+                'multiple_workers': True,
+                'workers': existing_worker,
+                'error': f'Multiple workers already exist for {dc}'
+            }
+
+        credentials_result = get_private_worker_credentials_from_toolchain(toolchain_guid, dc)
+        if not credentials_result.get('success'):
+            return credentials_result
+
+        payload = {
+            'tool_type_id': 'private_worker',
+            'name': worker_name,
+            'parameters': {
+                'name': worker_name,
+                'worker_queue_credentials': credentials_result['credentials']
+            }
+        }
+
+        response = requests.post(
+            f'https://api.us-south.devops.cloud.ibm.com/toolchain/v2/toolchains/{toolchain_guid}/tools',
+            headers={
+                'Authorization': f'Bearer {iam_token}',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            json=payload,
             timeout=60
         )
-        
-        if result.returncode == 0:
-            worker_data = json.loads(result.stdout)
-            print(f"DEBUG: Worker created successfully: {worker_data}")
+
+        if response.status_code not in (200, 201):
             return {
-                'id': worker_data.get('instance_id'),
-                'name': worker_name
+                'success': False,
+                'error': f'Failed to create private worker ({response.status_code})',
+                'details': response.text[:1000]
             }
-        else:
-            print(f"ERROR: Failed to create worker: {result.stderr}")
-            return None
-            
+
+        worker_data = response.json()
+        worker = {
+            'id': worker_data.get('id') or worker_data.get('tool_id') or worker_data.get('instance_id'),
+            'name': worker_name
+        }
+
+        if not worker['id']:
+            refreshed_worker = get_worker_config(toolchain_guid, iam_token, dc)
+            if isinstance(refreshed_worker, dict):
+                worker = refreshed_worker
+
+        return {
+            'success': True,
+            'worker': worker,
+            'created': True
+        }
     except Exception as e:
         print(f"Error creating worker integration: {e}")
-        return None
+        return {
+            'success': False,
+            'error': str(e)
+        }
 
 def get_secrets_manager_integration(toolchain_guid, iam_token):
     """Get Secrets Manager integration ID from toolchain"""
@@ -1730,64 +2211,121 @@ def detect_pipeline_config_branch(pipeline_id, iam_token):
         print(f"Error detecting pipeline-config-branch: {e}")
         return 'master'
 
-def create_trigger_payload(trigger_name, template_trigger, worker_config, dc, pipeline_config_branch, sm_integration_id=None):
-    """Create trigger payload with hardcoded defaults"""
-    
-    # DC mapping for cluster names
-    dc_cluster_map = {
-        'syd05': 'rkeranchersyd0501.softlayer.local',
-        'syd04': 'rkeranchersyd0401.softlayer.local',
-        'lon02': 'rkerancherlon0201.softlayer.local',
-        'lon05': 'rkerancherlon0501.softlayer.local',
-        'lon06': 'rkerancherlon0601.softlayer.local',
-        'osa23': 'rkerancherosa2301.softlayer.local'
+def normalize_service_name(service_name):
+    return service_name.rsplit('-cd', 1)[0].rsplit('-stage', 1)[0].rsplit('-prod', 1)[0]
+
+def resolve_dc_files_repo_name(service_name):
+    return normalize_service_name(service_name)
+
+def resolve_inventory_repo_name(service_name):
+    base_service = normalize_service_name(service_name)
+    return f'{base_service}-inventory'
+
+def build_dc_file_names(dc):
+    return (
+        f'fcp-{dc}01-deployment.yaml',
+        f'fcp-{dc}01-values-enterprise.yaml'
+    )
+
+def build_dc_runtime_values(dc):
+    return {
+        'fcp_cluster': f'rkerancher{dc}01.softlayer.local',
+        'fcp_downstream_cluster': f'rkecontrol{dc}01',
+        'k8_replacement_list': f'auth/k8s-cluster-dc::>auth/k8s-cluster-{dc}01',
+        'target-environment': f'fcp-{dc}01',
+        'vault-token': 'fcp-dal14-vault-token'
     }
-    
-    dc_downstream_map = {
-        'syd05': 'rkecontrolsyd0501',
-        'syd04': 'rkecontrolsyd0401',
-        'lon02': 'rkecontrollon0201',
-        'lon05': 'rkecontrollon0501',
-        'lon06': 'rkecontrollon0601',
-        'osa23': 'rkecontrolosa2301'
-    }
-    
-    # Build properties list
-    properties = [
-        {'name': 'classic-user-creds', 'value': 'oculus-classic-production-fid', 'type': 'secure'},
-        {'name': 'fcp_cluster', 'value': dc_cluster_map.get(dc, 'rkeranchersyd0501.softlayer.local'), 'type': 'text'},
-        {'name': 'fcp_downstream_cluster', 'value': dc_downstream_map.get(dc, 'rkecontrolsyd0501'), 'type': 'text'},
-        {'name': 'k8_replacement_list', 'value': f'auth/k8s-cluster-dc::>auth/k8s-cluster-{dc}01', 'type': 'text'},
-        {'name': 'namespace', 'value': 'network-monitoring', 'type': 'text'},
-        {'name': 'pipeline-config-branch', 'value': 'fcp-classic-pipeline', 'type': 'text'},
-        {'name': 'repo-branch', 'value': 'fcp-dev', 'type': 'text'},
-        {'name': 'sm-secret-grp', 'value': 'classic', 'type': 'text'},
-        {'name': 'target-environment', 'value': 'fcp-dev', 'type': 'text'},
-        {'name': 'vault-token', 'value': 'fcp-dal14-vault-token', 'type': 'secure'},
-        {'name': 'vault_addr_url', 'value': 'http://172.27.21.98:8200', 'type': 'text'}
+
+def rewrite_dc_value(value, source_dc, target_dc):
+    if not isinstance(value, str) or not source_dc or not target_dc:
+        return value
+
+    source_dc = source_dc.lower().strip()
+    target_dc = target_dc.lower().strip()
+
+    replacements = [
+        (f'rkerancher{source_dc}01.softlayer.local', f'rkerancher{target_dc}01.softlayer.local'),
+        (f'rkecontrol{source_dc}01', f'rkecontrol{target_dc}01'),
+        (f'auth/k8s-cluster-{source_dc}01', f'auth/k8s-cluster-{target_dc}01'),
+        (f'fcp-{source_dc}01', f'fcp-{target_dc}01'),
+        (f'-{source_dc}01', f'-{target_dc}01'),
+        (source_dc, target_dc)
     ]
-    
-    # Add Secrets Manager integration if available
+
+    rewritten = value
+    for old, new in replacements:
+        rewritten = rewritten.replace(old, new)
+
+    return rewritten
+
+def create_trigger_payload(trigger_name, template_trigger, worker_config, dc, pipeline_config_branch, sm_integration_id=None, property_overrides=None, source_dc=None):
+    """Clone the reference trigger and only rewrite DC-specific values for the target DC."""
+    runtime_values = build_dc_runtime_values(dc)
+    source_dc = (source_dc or '').lower().strip()
+
+    print(f"DEBUG: Rewriting trigger properties from reference DC '{source_dc}' to target DC '{dc}'")
+
+    property_map = {}
+    if template_trigger and template_trigger.get('properties'):
+        for prop in template_trigger.get('properties', []):
+            prop_name = prop.get('name')
+            if not prop_name:
+                continue
+
+            property_map[prop_name] = {
+                'name': prop_name,
+                'value': rewrite_dc_value(prop.get('value'), source_dc, dc),
+                'type': prop.get('type', 'text')
+            }
+
+    dc_specific_overrides = {
+        'fcp_cluster': runtime_values['fcp_cluster'],
+        'fcp_downstream_cluster': runtime_values['fcp_downstream_cluster'],
+        'k8_replacement_list': runtime_values['k8_replacement_list'],
+        'target-environment': runtime_values['target-environment'],
+        'vault-token': runtime_values['vault-token']
+    }
+
+    for prop_name, prop_value in dc_specific_overrides.items():
+        if prop_name in property_map:
+            property_map[prop_name]['value'] = prop_value
+
     if sm_integration_id:
-        properties.append({
-            'name': 'nettools-sm',
-            'value': sm_integration_id,
-            'type': 'integration'
-        })
-    
-    # Create trigger with hardcoded defaults
-    new_trigger = {
+        if 'nettools-sm' in property_map:
+            property_map['nettools-sm']['value'] = sm_integration_id
+            property_map['nettools-sm']['type'] = property_map['nettools-sm'].get('type', 'integration') or 'integration'
+        else:
+            property_map['nettools-sm'] = {
+                'name': 'nettools-sm',
+                'value': sm_integration_id,
+                'type': 'integration'
+            }
+
+    if property_overrides:
+        for prop_name, prop_value in property_overrides.items():
+            if prop_name in property_map:
+                property_map[prop_name]['value'] = prop_value
+            else:
+                property_map[prop_name] = {
+                    'name': prop_name,
+                    'value': prop_value,
+                    'type': 'text'
+                }
+
+    properties = list(property_map.values())
+
+    payload = {
         'name': trigger_name,
-        'type': 'manual',
-        'event_listener': 'dev-mode-cd-listener',
+        'type': template_trigger.get('type', 'manual') if template_trigger else 'manual',
+        'event_listener': template_trigger.get('event_listener', 'dev-mode-cd-listener') if template_trigger else 'dev-mode-cd-listener',
         'worker': {
             'id': worker_config['id']
         },
         'properties': properties,
-        'enabled': True
+        'enabled': template_trigger.get('enabled', True) if template_trigger else True
     }
-    
-    return new_trigger
+
+    return payload
 
 def post_trigger(pipeline_id, trigger_payload, iam_token):
     """Post new trigger to pipeline"""
@@ -1800,13 +2338,47 @@ def post_trigger(pipeline_id, trigger_payload, iam_token):
         
         response = requests.post(url, headers=headers, json=trigger_payload, timeout=30)
         if response.status_code in [200, 201]:
-            return response.json()
-        else:
-            print(f"Error posting trigger: {response.status_code} - {response.text}")
-            return None
+            return {
+                'success': True,
+                'data': response.json()
+            }
+
+        error_text = response.text
+        error_message = f'API error: {response.status_code}'
+        trigger_exists = False
+
+        try:
+            error_json = response.json()
+            errors = error_json.get('errors', [])
+            if errors:
+                trigger_exists = any(err.get('code') == 'non_unique_value' for err in errors)
+                if trigger_exists:
+                    error_message = 'Trigger already exists'
+                else:
+                    error_message = '; '.join(
+                        err.get('message', 'Unknown API error')
+                        for err in errors
+                    )
+            else:
+                error_message = error_json.get('message', error_text)
+        except Exception:
+            error_message = error_text
+
+        print(f"Error posting trigger: {response.status_code} - {response.text}")
+        return {
+            'success': False,
+            'status_code': response.status_code,
+            'error': error_message,
+            'trigger_exists': trigger_exists,
+            'details': error_text
+        }
     except Exception as e:
         print(f"Error posting trigger: {e}")
-        return None
+        return {
+            'success': False,
+            'error': str(e),
+            'trigger_exists': False
+        }
 
 @app.route('/api/fcp/create-trigger', methods=['POST'])
 def fcp_create_trigger_wizard():
@@ -1818,14 +2390,190 @@ def fcp_create_trigger_wizard():
         service_name = data.get('service_name')
         dc = data.get('dc')
         toolchain_guid = data.get('toolchain_guid')
+        file_action = data.get('file_action', 'skip')
+        github_token = data.get('github_token')
+        source_dc = data.get('source_dc')
+        file_contents = data.get('file_contents') or {}
+        property_overrides = data.get('property_overrides') or {}
         
-        print(f"DEBUG: service_name={service_name}, dc={dc}, toolchain_guid={toolchain_guid}")  # Debug log
+        print(f"DEBUG: service_name={service_name}, dc={dc}, toolchain_guid={toolchain_guid}, file_action={file_action}")  # Debug log
         
         if not service_name or not dc or not toolchain_guid:
             return jsonify({
                 'success': False,
                 'error': f'Missing required fields - service_name: {service_name}, dc: {dc}, toolchain_guid: {toolchain_guid}'
             })
+        
+        base_service = normalize_service_name(service_name)
+        files_repo = resolve_dc_files_repo_name(service_name)
+        deployment_file, values_file = build_dc_file_names(dc)
+        token = github_token or os.getenv('GITHUB_TOKEN')
+        deployment_exists = False
+        values_exists = False
+        headers = None
+
+        if not token:
+            return jsonify({
+                'success': False,
+                'needs_token': True,
+                'dc': dc,
+                'service': base_service,
+                'message': 'GitHub token required to verify or create DC files'
+            })
+
+        headers = {
+            'Authorization': f'token {token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        deployment_check_url = f'https://github.ibm.com/api/v3/repos/nettools/{files_repo}/contents/kubernetes/{deployment_file}?ref=fcp-develop'
+        values_check_url = f'https://github.ibm.com/api/v3/repos/nettools/{files_repo}/contents/kubernetes/{values_file}?ref=fcp-develop'
+        repo_tree_url = f'https://github.ibm.com/nettools/{files_repo}/tree/fcp-develop/kubernetes'
+
+        def refresh_dc_file_status():
+            deployment_response = requests.get(deployment_check_url, headers=headers, verify=True)
+            values_response = requests.get(values_check_url, headers=headers, verify=True)
+            print(f"DEBUG: Checking DC files for {dc} in repo {files_repo}")
+            print(f"DEBUG: Deployment check URL: {deployment_check_url}")
+            print(f"DEBUG: Deployment status: {deployment_response.status_code}")
+            print(f"DEBUG: Values check URL: {values_check_url}")
+            print(f"DEBUG: Values status: {values_response.status_code}")
+            
+            auth_failure_codes = {401, 403}
+            if deployment_response.status_code in auth_failure_codes or values_response.status_code in auth_failure_codes:
+                return None, None
+            
+            return deployment_response.status_code == 200, values_response.status_code == 200
+
+        deployment_exists, values_exists = refresh_dc_file_status()
+
+        if deployment_exists is None or values_exists is None:
+            return jsonify({
+                'success': False,
+                'needs_token': True,
+                'dc': dc,
+                'service': files_repo,
+                'message': 'GitHub authentication failed while verifying DC files. Please enter a valid token.'
+            })
+
+        skip_file_creation = file_action == 'skip-create-files'
+
+        if not (deployment_exists and values_exists):
+            if file_action == 'create':
+                has_reviewed_file_contents = bool(file_contents.get('deployment_content')) and bool(file_contents.get('values_content'))
+
+                if has_reviewed_file_contents:
+                    save_payload = {
+                        'dc': dc,
+                        'service_name': service_name,
+                        'deployment_content': file_contents['deployment_content'],
+                        'values_content': file_contents['values_content'],
+                        'github_token': token,
+                        'target_branch': f'fcp-{dc}01',
+                        'source_branch': 'fcp-dev'
+                    }
+
+                    with app.test_request_context(
+                        '/api/fcp/save-dc-files',
+                        method='POST',
+                        json=save_payload
+                    ):
+                        save_response = save_dc_files()
+                    save_payload_result = save_response.get_json()
+                    if not save_payload_result.get('success'):
+                        return jsonify(save_payload_result)
+
+                    deployment_exists, values_exists = refresh_dc_file_status()
+                    if not (deployment_exists and values_exists):
+                        return jsonify({
+                            'success': False,
+                            'dc': dc,
+                            'service': files_repo,
+                            'message': f'DC files for {dc} were saved to fcp-develop but could not be verified on GitHub',
+                            'repo_url': repo_tree_url,
+                            'check_urls': {
+                                'deployment': deployment_check_url,
+                                'values': values_check_url
+                            },
+                            'files': {
+                                'deployment': {
+                                    'name': deployment_file,
+                                    'exists': deployment_exists
+                                },
+                                'values': {
+                                    'name': values_file,
+                                    'exists': values_exists
+                                }
+                            }
+                        })
+                else:
+                    generate_payload = {
+                        'dc': dc,
+                        'service_name': service_name,
+                        'github_token': token,
+                        'source_branch': 'fcp-dev',
+                        'target_branch': f'fcp-{dc}01'
+                    }
+                    if source_dc:
+                        generate_payload['source_dc'] = source_dc
+
+                    with app.test_request_context(
+                        '/api/fcp/generate-dc-files',
+                        method='POST',
+                        json=generate_payload
+                    ):
+                        generated_response = generate_dc_files()
+                    generated_payload = generated_response.get_json()
+                    if not generated_payload.get('success'):
+                        return jsonify(generated_payload)
+
+                    return jsonify({
+                        'success': False,
+                        'needs_file_creation': True,
+                        'needs_file_review': True,
+                        'dc': dc,
+                        'service': files_repo,
+                        'message': f'Review generated YAML files for {dc} before saving them to the repo',
+                        'repo_url': repo_tree_url,
+                        'check_urls': {
+                            'deployment': deployment_check_url,
+                            'values': values_check_url
+                        },
+                        'files': {
+                            'deployment': {
+                                'name': deployment_file,
+                                'exists': deployment_exists
+                            },
+                            'values': {
+                                'name': values_file,
+                                'exists': values_exists
+                            }
+                        },
+                        'generated_files': generated_payload.get('files', {})
+                    })
+            elif not skip_file_creation:
+                return jsonify({
+                    'success': False,
+                    'missing_dc_files': True,
+                    'dc': dc,
+                    'service': files_repo,
+                    'message': f'Missing DC files for {dc}',
+                    'repo_url': repo_tree_url,
+                    'check_urls': {
+                        'deployment': deployment_check_url,
+                        'values': values_check_url
+                    },
+                    'files': {
+                        'deployment': {
+                            'name': deployment_file,
+                            'exists': deployment_exists
+                        },
+                        'values': {
+                            'name': values_file,
+                            'exists': values_exists
+                        }
+                    },
+                    'needs_token': False
+                })
         
         # Get IAM token
         iam_token = get_iam_token()
@@ -1837,37 +2585,267 @@ def fcp_create_trigger_wizard():
         if not pipeline_id:
             return jsonify({'success': False, 'error': 'Failed to get pipeline ID'})
         
-        # Get worker configuration for specific DC
+        reference_dc = (source_dc or 'syd04').strip().lower()
+        print(f"DEBUG: Using reference DC '{reference_dc}' for service '{service_name}' in current pipeline")
+
+        template_trigger = fetch_template_trigger(iam_token, pipeline_id, reference_dc)
+        if not template_trigger:
+            return jsonify({
+                'success': False,
+                'error': f"Reference trigger for {reference_dc} not found in current pipeline"
+            })
+
         worker_config = get_worker_config(toolchain_guid, iam_token, dc)
-        if not worker_config:
-            # Worker not found, return error to show modal
-            print(f"DEBUG: Worker fcp-{dc}-nettools-cd-worker not found")
+
+        if isinstance(worker_config, list):
+            return jsonify({
+                'success': False,
+                'multiple_workers': True,
+                'dc': dc,
+                'workers': [{'id': w['id'], 'name': w['name']} for w in worker_config],
+                'message': f'Multiple workers found for {dc}. Please select one.'
+            })
+
+        if not worker_config or not worker_config.get('id'):
             return jsonify({
                 'success': False,
                 'worker_not_found': True,
                 'dc': dc,
-                'expected_worker': f'fcp-{dc}-nettools-cd-worker',
-                'message': f'Worker "fcp-{dc}-nettools-cd-worker" not found. Please create it manually using the modal.'
+                'expected_worker': f'fcp-{dc}-nettools-cd-worker-{normalize_service_name(service_name)}',
+                'message': f'DC-specific worker not found for {dc}. Create the worker first, then retry.'
             })
+
+        sm_integration_id = get_secrets_manager_integration(toolchain_guid, iam_token)
+        if not sm_integration_id:
+            print("Warning: Secrets Manager integration not found, trigger may fail")
+
+        dc_name = dc.lower().strip()
+        existing_dc = Datacenter.query.filter_by(name=dc_name).first()
+        if not existing_dc:
+            new_dc = Datacenter(name=dc_name, description=f'Auto-created from trigger for {service_name}')
+            db.session.add(new_dc)
+            db.session.commit()
+            print(f"DEBUG: Saved new datacenter to database: {dc_name}")
+
+        trigger_name = f"Manual CD Trigger - {service_name} - FCP-prod {dc}"
+        new_trigger = create_trigger_payload(
+            trigger_name,
+            template_trigger,
+            worker_config,
+            dc,
+            None,
+            sm_integration_id,
+            property_overrides,
+            reference_dc
+        )
+        
+        # Debug: Print the trigger payload
+        print(f"DEBUG: Trigger payload: {json.dumps(new_trigger, indent=2)}")
+        
+        # Post the trigger
+        result = post_trigger(pipeline_id, new_trigger, iam_token)
+        
+        if result and result.get('success'):
+            trigger_data = result.get('data', {})
+            return jsonify({
+                'success': True,
+                'trigger_id': trigger_data.get('id'),
+                'trigger_name': trigger_data.get('name'),
+                'message': f'Trigger created successfully for {dc}'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Failed to create trigger') if result else 'Failed to create trigger',
+                'trigger_exists': result.get('trigger_exists', False) if result else False,
+                'details': result.get('details') if result else None
+            })
+        
+    except Exception as e:
+        import traceback
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()})
+@app.route('/api/fcp/private-worker-secret-options', methods=['POST'])
+def fcp_private_worker_secret_options():
+    """List Secrets Manager providers and groups for worker credential selection"""
+    try:
+        data = request.get_json()
+        toolchain_guid = data.get('toolchain_guid')
+        provider_id = data.get('provider_id')
+
+        if not toolchain_guid:
+            return jsonify({'success': False, 'error': 'toolchain_guid is required'})
+
+        iam_token = get_iam_token()
+        if not iam_token:
+            return jsonify({'success': False, 'error': 'Failed to get IAM token'})
+
+        providers = get_secrets_manager_providers(toolchain_guid)
+        if not providers:
+            return jsonify({'success': False, 'error': 'No Secrets Manager providers found in toolchain'})
+
+        response_payload = {
+            'success': True,
+            'providers': [{'id': provider['id'], 'name': provider['name']} for provider in providers]
+        }
+
+        if provider_id:
+            provider = next((item for item in providers if item['id'] == provider_id), None)
+            if not provider:
+                return jsonify({'success': False, 'error': 'Selected provider not found in toolchain'})
+
+            groups_result = get_secret_groups_for_provider(provider, iam_token)
+            if not groups_result.get('success'):
+                return jsonify(groups_result)
+
+            response_payload['groups'] = groups_result.get('groups', [])
+
+        return jsonify(response_payload)
+    except Exception as e:
+        import traceback
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()})
+
+
+@app.route('/api/fcp/create-worker-from-secret', methods=['POST'])
+def fcp_create_worker_from_secret():
+    """Create private worker using selected provider/group/secret name"""
+    try:
+        data = request.get_json()
+        toolchain_guid = data.get('toolchain_guid')
+        dc = data.get('dc')
+        service_name = data.get('service_name')
+        provider_id = data.get('provider_id')
+        group_id = data.get('group_id')
+        secret_name = data.get('secret_name')
+
+        if not all([toolchain_guid, dc, service_name, provider_id, group_id, secret_name]):
+            return jsonify({'success': False, 'error': 'toolchain_guid, dc, service_name, provider_id, group_id, and secret_name are required'})
+
+        iam_token = get_iam_token()
+        if not iam_token:
+            return jsonify({'success': False, 'error': 'Failed to get IAM token'})
+
+        providers = get_secrets_manager_providers(toolchain_guid)
+        provider = next((item for item in providers if item['id'] == provider_id), None)
+        if not provider:
+            return jsonify({'success': False, 'error': 'Selected provider not found in toolchain'})
+
+        secret_result = find_secret_by_name(provider, group_id, secret_name, iam_token)
+        if not secret_result.get('success'):
+            return jsonify(secret_result)
+
+        secret_crn = secret_result['secret'].get('crn')
+        if not secret_crn:
+            return jsonify({'success': False, 'error': 'Selected secret does not contain a CRN'})
+
+        payload_result = fetch_secret_payload_from_crn(secret_crn, iam_token)
+        if not payload_result.get('success'):
+            return jsonify(payload_result)
+
+        worker_name = f"fcp-{dc}-nettools-cd-worker-{normalize_service_name(service_name)}"
+        payload = {
+            'tool_type_id': 'private_worker',
+            'name': worker_name,
+            'parameters': {
+                'name': worker_name,
+                'worker_queue_credentials': payload_result['credentials']
+            }
+        }
+
+        response = requests.post(
+            f'https://api.us-south.devops.cloud.ibm.com/toolchain/v2/toolchains/{toolchain_guid}/tools',
+            headers={
+                'Authorization': f'Bearer {iam_token}',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            json=payload,
+            timeout=60
+        )
+
+        if response.status_code not in (200, 201):
+            return jsonify({
+                'success': False,
+                'error': f'Failed to create private worker ({response.status_code})',
+                'details': response.text[:1000]
+            })
+
+        worker_data = response.json()
+        worker_id = worker_data.get('id') or worker_data.get('tool_id') or worker_data.get('instance_id')
+        if not worker_id:
+            refreshed_worker = get_worker_config(toolchain_guid, iam_token, dc)
+            if isinstance(refreshed_worker, dict):
+                worker_id = refreshed_worker.get('id')
+
+        return jsonify({
+            'success': True,
+            'worker': {
+                'id': worker_id,
+                'name': worker_name
+            }
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()})
+
+
+@app.route('/api/fcp/create-trigger-with-worker', methods=['POST'])
+def fcp_create_trigger_with_selected_worker():
+    """Create trigger with user-selected worker (when multiple workers found)"""
+    try:
+        data = request.json
+        service_name = data.get('service_name')
+        dc = data.get('dc')
+        worker_id = data.get('worker_id')
+        worker_name = data.get('worker_name')
+        
+        if not all([service_name, dc, worker_id, worker_name]):
+            return jsonify({'success': False, 'error': 'Missing required fields'})
+        
+        # Get IAM token
+        iam_token = get_iam_token()
+        if not iam_token:
+            return jsonify({'success': False, 'error': 'Failed to get IAM token'})
+        
+        # Get toolchain GUID
+        toolchain_guid = get_toolchain_guid(service_name, iam_token)
+        if not toolchain_guid:
+            return jsonify({'success': False, 'error': f'Toolchain not found for service: {service_name}'})
+        
+        # Get pipeline ID
+        pipeline_id = get_pipeline_id(toolchain_guid, iam_token)
+        if not pipeline_id:
+            return jsonify({'success': False, 'error': 'Failed to get pipeline ID'})
+        
+        # Use the selected worker
+        worker_config = {
+            'id': worker_id,
+            'name': worker_name
+        }
+        
+        # Save DC to database for persistence
+        dc_name = dc.lower().strip()
+        existing_dc = Datacenter.query.filter_by(name=dc_name).first()
+        if not existing_dc:
+            new_dc = Datacenter(name=dc_name, description=f'Auto-created from trigger for {service_name}')
+            db.session.add(new_dc)
+            db.session.commit()
+            print(f"DEBUG: Saved new datacenter to database: {dc_name}")
         
         # Get Secrets Manager integration
         sm_integration_id = get_secrets_manager_integration(toolchain_guid, iam_token)
         if not sm_integration_id:
             print("Warning: Secrets Manager integration not found, trigger may fail")
         
-        # Create the trigger with hardcoded defaults
+        # Create the trigger
         trigger_name = f"Manual CD Trigger - {service_name} - FCP-prod {dc}"
         new_trigger = create_trigger_payload(
             trigger_name,
-            None,  # No template needed
+            None,
             worker_config,
             dc,
-            None,  # No pipeline_config_branch needed
-            sm_integration_id  # Pass SM integration ID
+            None,
+            sm_integration_id
         )
-        
-        # Debug: Print the trigger payload
-        print(f"DEBUG: Trigger payload: {json.dumps(new_trigger, indent=2)}")
         
         # Post the trigger
         result = post_trigger(pipeline_id, new_trigger, iam_token)
@@ -1877,11 +2855,464 @@ def fcp_create_trigger_wizard():
                 'success': True,
                 'trigger_id': result.get('id'),
                 'trigger_name': result.get('name'),
-                'message': f'Trigger created successfully for {dc}'
+                'message': f'Trigger created successfully for {dc} using worker {worker_name}'
             })
         else:
             return jsonify({'success': False, 'error': 'Failed to create trigger'})
         
+    except Exception as e:
+        import traceback
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()})
+
+
+        worker_data = response.json()
+        worker_id = worker_data.get('id') or worker_data.get('tool_id') or worker_data.get('instance_id')
+        if not worker_id:
+            refreshed_worker = get_worker_config(toolchain_guid, iam_token, dc)
+            if isinstance(refreshed_worker, dict):
+                worker_id = refreshed_worker.get('id')
+
+        return jsonify({
+            'success': True,
+            'worker': {
+                'id': worker_id,
+                'name': worker_name
+            }
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()})
+
+
+@app.route('/api/fcp/check-dc-files', methods=['POST'])
+def check_dc_files():
+    """Check if DC deployment files exist in GitHub repo"""
+    try:
+        data = request.json
+        dc = data.get('dc')
+        service_name = data.get('service_name')
+        github_token = data.get('github_token')
+        
+        if not dc or not service_name:
+            return jsonify({'success': False, 'error': 'DC and service_name parameters required'})
+        
+        base_service = normalize_service_name(service_name)
+        files_repo = resolve_dc_files_repo_name(service_name)
+        
+        # Get GitHub token from environment or request
+        token = github_token or os.getenv('GITHUB_TOKEN')
+        
+        if not token:
+            return jsonify({
+                'success': False,
+                'needs_token': True,
+                'error': 'GitHub token required. Please provide GITHUB_TOKEN.'
+            })
+        
+        # GitHub API URLs
+        repo_owner = 'nettools'
+        repo_name = files_repo
+        branch = 'fcp-develop'
+        
+        deployment_file, values_file = build_dc_file_names(dc)
+        
+        headers = {
+            'Authorization': f'token {token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        
+        # Check deployment file
+        deployment_url = f'https://github.ibm.com/api/v3/repos/{repo_owner}/{repo_name}/contents/kubernetes/{deployment_file}?ref={branch}'
+        deployment_response = requests.get(deployment_url, headers=headers, verify=True)
+        deployment_exists = deployment_response.status_code == 200
+        
+        # Check values file
+        values_url = f'https://github.ibm.com/api/v3/repos/{repo_owner}/{repo_name}/contents/kubernetes/{values_file}?ref={branch}'
+        values_response = requests.get(values_url, headers=headers, verify=True)
+        values_exists = values_response.status_code == 200
+        
+        return jsonify({
+            'success': True,
+            'dc': dc,
+            'service': files_repo,
+            'files': {
+                'deployment': {
+                    'name': deployment_file,
+                    'exists': deployment_exists,
+                    'url': f'https://github.ibm.com/{repo_owner}/{repo_name}/blob/{branch}/kubernetes/{deployment_file}'
+                },
+                'values': {
+                    'name': values_file,
+                    'exists': values_exists,
+                    'url': f'https://github.ibm.com/{repo_owner}/{repo_name}/blob/{branch}/kubernetes/{values_file}'
+                }
+            },
+            'all_exist': deployment_exists and values_exists,
+            'repo_url': f'https://github.ibm.com/{repo_owner}/{repo_name}/tree/{branch}/kubernetes'
+        })
+        
+    except Exception as e:
+        import traceback
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()})
+
+@app.route('/api/fcp/generate-dc-files', methods=['POST'])
+def generate_dc_files():
+    """Generate DC deployment files from an existing repo template via GitHub API"""
+    try:
+        data = request.json
+        dc = data.get('dc')
+        service_name = data.get('service_name')
+        github_token = data.get('github_token')
+        
+        if not dc or not service_name:
+            return jsonify({'success': False, 'error': 'DC and service_name parameters required'})
+        
+        dc = dc.lower().strip()
+        base_service = normalize_service_name(service_name)
+        files_repo = resolve_dc_files_repo_name(service_name)
+        
+        token = github_token or os.getenv('GITHUB_TOKEN')
+        if not token:
+            return jsonify({
+                'success': False,
+                'needs_token': True,
+                'error': 'GitHub token required'
+            })
+        
+        repo_owner = 'nettools'
+        repo_name = files_repo
+        branch = 'fcp-develop'
+        
+        headers = {
+            'Authorization': f'token {token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        
+        target_deployment_file, target_values_file = build_dc_file_names(dc)
+
+        requested_source_dc = (data.get('source_dc') or '').lower().strip()
+        if requested_source_dc and requested_source_dc != dc:
+            candidate_source_dcs = [requested_source_dc]
+        else:
+            candidate_source_dcs = [
+                'dal09', 'dal14', 'che01', 'fra05', 'lon02', 'lon04', 'lon05', 'lon06',
+                'mad02', 'mad04', 'osa21', 'osa22', 'osa23', 'sao01', 'sao04', 'sao05',
+                'sjc04', 'sng01', 'syd04', 'syd05', 'tok02', 'tok04', 'tor01', 'tor04',
+                'tor05', 'wdc04'
+            ]
+            seen = set()
+            candidate_source_dcs = [
+                source for source in candidate_source_dcs
+                if not (source in seen or seen.add(source)) and source != dc
+            ]
+
+        import base64
+
+        selected_source_dc = None
+        deployment_content = None
+        values_content = None
+
+        for source_dc in candidate_source_dcs:
+            source_deployment_file, source_values_file = build_dc_file_names(source_dc)
+
+            deployment_url = f'https://github.ibm.com/api/v3/repos/{repo_owner}/{repo_name}/contents/kubernetes/{source_deployment_file}?ref={branch}'
+            values_url = f'https://github.ibm.com/api/v3/repos/{repo_owner}/{repo_name}/contents/kubernetes/{source_values_file}?ref={branch}'
+
+            deployment_response = requests.get(deployment_url, headers=headers, verify=True)
+            values_response = requests.get(values_url, headers=headers, verify=True)
+
+            if deployment_response.status_code == 200 and values_response.status_code == 200:
+                selected_source_dc = source_dc
+                deployment_content = base64.b64decode(deployment_response.json()['content']).decode('utf-8')
+                values_content = base64.b64decode(values_response.json()['content']).decode('utf-8')
+                break
+        
+        if not selected_source_dc:
+            return jsonify({
+                'success': False,
+                'needs_reference_dc': not bool(requested_source_dc),
+                'dc': dc,
+                'service': files_repo,
+                'error': (
+                    f'Reference DC {requested_source_dc} not found in {repo_name} repo'
+                    if requested_source_dc else
+                    f'No template DC files found in {repo_name} repo'
+                ),
+                'checked_source_dcs': candidate_source_dcs
+            })
+        
+        deployment_content = deployment_content.replace(selected_source_dc, dc)
+        deployment_content = deployment_content.replace(f'{selected_source_dc}01', f'{dc}01')
+        
+        values_content = values_content.replace(selected_source_dc, dc)
+        values_content = values_content.replace(f'{selected_source_dc}01', f'{dc}01')
+        
+        runtime_values = build_dc_runtime_values(dc)
+        source_runtime_values = build_dc_runtime_values(selected_source_dc)
+        for key, source_value in source_runtime_values.items():
+            deployment_content = deployment_content.replace(source_value, runtime_values[key])
+            values_content = values_content.replace(source_value, runtime_values[key])
+        
+        return jsonify({
+            'success': True,
+            'dc': dc,
+            'service': files_repo,
+            'source_dc': selected_source_dc,
+            'files': {
+                'deployment': {
+                    'name': target_deployment_file,
+                    'content': deployment_content
+                },
+                'values': {
+                    'name': target_values_file,
+                    'content': values_content
+                }
+            }
+        })
+        
+    except Exception as e:
+        import traceback
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()})
+
+@app.route('/api/fcp/save-dc-files', methods=['POST'])
+def save_dc_files():
+    """Save DC deployment files to service repo on fcp-develop and create inventory branch fcp-<dc>01 from fcp-dev"""
+    try:
+        data = request.json
+        dc = data.get('dc')
+        service_name = data.get('service_name')
+        deployment_content = data.get('deployment_content')
+        values_content = data.get('values_content')
+        github_token = data.get('github_token')
+        inventory_source_branch = (data.get('source_branch') or 'fcp-dev').strip()
+        inventory_target_branch = (data.get('target_branch') or f'fcp-{dc}01').strip()
+        service_branch = 'fcp-develop'
+
+        if not all([dc, service_name, deployment_content, values_content]):
+            return jsonify({'success': False, 'error': 'Missing required parameters'})
+
+        service_repo = resolve_dc_files_repo_name(service_name)
+        inventory_repo = resolve_inventory_repo_name(service_name)
+
+        token = github_token or os.getenv('GITHUB_TOKEN')
+        if not token:
+            return jsonify({
+                'success': False,
+                'needs_token': True,
+                'error': 'GitHub token required'
+            })
+
+        repo_owner = 'nettools'
+        headers = {
+            'Authorization': f'token {token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+
+        deployment_file, values_file = build_dc_file_names(dc)
+
+        inventory_source_ref_url = f'https://github.ibm.com/api/v3/repos/{repo_owner}/{inventory_repo}/git/ref/heads/{inventory_source_branch}'
+        inventory_source_ref_response = requests.get(inventory_source_ref_url, headers=headers, verify=True)
+        if inventory_source_ref_response.status_code in [401, 403]:
+            return jsonify({
+                'success': False,
+                'needs_token': True,
+                'error': 'GitHub authentication failed while reading inventory source branch'
+            })
+        if inventory_source_ref_response.status_code != 200:
+            return jsonify({
+                'success': False,
+                'error': f'Failed to find source branch {inventory_source_branch} in {inventory_repo}'
+            })
+
+        inventory_source_sha = inventory_source_ref_response.json().get('object', {}).get('sha')
+        if not inventory_source_sha:
+            return jsonify({
+                'success': False,
+                'error': f'Unable to resolve source branch SHA for {inventory_source_branch}'
+            })
+
+        inventory_target_ref_url = f'https://github.ibm.com/api/v3/repos/{repo_owner}/{inventory_repo}/git/ref/heads/{inventory_target_branch}'
+        inventory_target_ref_response = requests.get(inventory_target_ref_url, headers=headers, verify=True)
+        if inventory_target_ref_response.status_code in [401, 403]:
+            return jsonify({
+                'success': False,
+                'needs_token': True,
+                'error': 'GitHub authentication failed while checking inventory target branch'
+            })
+
+        branch_created = False
+        if inventory_target_ref_response.status_code == 404:
+            create_ref_response = requests.post(
+                f'https://github.ibm.com/api/v3/repos/{repo_owner}/{inventory_repo}/git/refs',
+                headers=headers,
+                json={
+                    'ref': f'refs/heads/{inventory_target_branch}',
+                    'sha': inventory_source_sha
+                },
+                verify=True
+            )
+            if create_ref_response.status_code not in [200, 201]:
+                error_message = create_ref_response.json().get('message', 'Unknown error')
+                return jsonify({
+                    'success': False,
+                    'error': f'Failed to create branch {inventory_target_branch} in {inventory_repo}: {error_message}'
+                })
+            branch_created = True
+        elif inventory_target_ref_response.status_code != 200:
+            return jsonify({
+                'success': False,
+                'error': f'Failed to check target branch {inventory_target_branch} in {inventory_repo}'
+            })
+
+        service_deployment_check_url = f'https://github.ibm.com/api/v3/repos/{repo_owner}/{service_repo}/contents/kubernetes/{deployment_file}?ref={service_branch}'
+        service_values_check_url = f'https://github.ibm.com/api/v3/repos/{repo_owner}/{service_repo}/contents/kubernetes/{values_file}?ref={service_branch}'
+
+        service_deployment_check_response = requests.get(service_deployment_check_url, headers=headers, verify=True)
+        service_values_check_response = requests.get(service_values_check_url, headers=headers, verify=True)
+
+        if service_deployment_check_response.status_code in [401, 403] or service_values_check_response.status_code in [401, 403]:
+            return jsonify({
+                'success': False,
+                'needs_token': True,
+                'error': 'GitHub authentication failed while saving DC files'
+            })
+
+        deployment_exists = service_deployment_check_response.status_code == 200
+        values_exists = service_values_check_response.status_code == 200
+
+        if deployment_exists or values_exists:
+            return jsonify({
+                'success': False,
+                'error': f'Files already exist in branch {service_branch} of {service_repo} repo. Please delete them first if you want to recreate.'
+            })
+
+        service_repo_path = os.path.join('/Users/sreekanthchityala/nettools', service_repo)
+        service_repo_git_url = f'https://github.ibm.com/{repo_owner}/{service_repo}.git'
+
+        def run_git(command, cwd):
+            result = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or result.stdout.strip() or 'Git command failed')
+            return result
+
+        if not os.path.isdir(service_repo_path):
+            clone_result = subprocess.run(
+                ['git', 'clone', service_repo_git_url, service_repo_path],
+                capture_output=True,
+                text=True
+            )
+            if clone_result.returncode != 0:
+                return jsonify({
+                    'success': False,
+                    'error': f'Failed to clone service repo {service_repo}: {clone_result.stderr.strip() or clone_result.stdout.strip()}'
+                })
+
+        try:
+            run_git(['git', 'fetch', 'origin'], service_repo_path)
+            run_git(['git', 'checkout', service_branch], service_repo_path)
+            run_git(['git', 'pull', 'origin', service_branch], service_repo_path)
+        except Exception as git_error:
+            return jsonify({
+                'success': False,
+                'error': f'Failed to prepare local service repo {service_repo} on {service_branch}: {git_error}'
+            })
+
+        kubernetes_dir = os.path.join(service_repo_path, 'kubernetes')
+        os.makedirs(kubernetes_dir, exist_ok=True)
+
+        deployment_path = os.path.join(kubernetes_dir, deployment_file)
+        values_path = os.path.join(kubernetes_dir, values_file)
+        baseline_path = os.path.join(service_repo_path, '.secrets.baseline')
+        venv_path = os.path.join(service_repo_path, 'venv')
+        venv_python = os.path.join(venv_path, 'bin', 'python3')
+        venv_pip = os.path.join(venv_path, 'bin', 'pip')
+        detect_secrets_bin = os.path.join(venv_path, 'bin', 'detect-secrets')
+
+        if os.path.exists(deployment_path) or os.path.exists(values_path):
+            return jsonify({
+                'success': False,
+                'error': f'Files already exist in local branch {service_branch} of {service_repo} repo. Please delete them first if you want to recreate.'
+            })
+
+        with open(deployment_path, 'w', encoding='utf-8') as deployment_handle:
+            deployment_handle.write(deployment_content)
+        with open(values_path, 'w', encoding='utf-8') as values_handle:
+            values_handle.write(values_content)
+
+        try:
+            subprocess.run(['python3', '-m', 'venv', 'venv'], cwd=service_repo_path, check=True, capture_output=True, text=True)
+            subprocess.run(
+                [venv_pip, 'install', '--upgrade', 'git+https://github.com/ibm/detect-secrets.git@master#egg=detect-secrets'],
+                cwd=service_repo_path,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            if os.path.exists(baseline_path):
+                subprocess.run(
+                    [detect_secrets_bin, 'scan', '--update', '.secrets.baseline'],
+                    cwd=service_repo_path,
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+            else:
+                baseline_result = subprocess.run(
+                    [detect_secrets_bin, 'scan'],
+                    cwd=service_repo_path,
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                with open(baseline_path, 'w', encoding='utf-8') as baseline_handle:
+                    baseline_handle.write(baseline_result.stdout)
+        except Exception as detect_error:
+            return jsonify({
+                'success': False,
+                'error': f'Failed to run detect-secrets in {service_repo}: {detect_error}'
+            })
+
+        try:
+            run_git(['git', 'add', f'kubernetes/{deployment_file}', f'kubernetes/{values_file}', '.secrets.baseline'], service_repo_path)
+            status_result = run_git(['git', 'status', '--short'], service_repo_path)
+            if not status_result.stdout.strip():
+                return jsonify({
+                    'success': False,
+                    'error': f'No local changes detected in {service_repo} after writing files and updating .secrets.baseline'
+                })
+
+            commit_message = f'Add {dc} DC YAML files and update detect-secrets baseline'
+            run_git(['git', 'commit', '-m', commit_message], service_repo_path)
+            run_git(['git', 'push', 'origin', service_branch], service_repo_path)
+        except Exception as commit_error:
+            return jsonify({
+                'success': False,
+                'error': f'Failed to commit/push service repo changes for {service_repo}: {commit_error}'
+            })
+
+        print(f"Created files locally and pushed for DC {dc} on branch {service_branch}:")
+        print(f"  - {deployment_file}")
+        print(f"  - {values_file}")
+        print(f"Updated detect-secrets baseline in {service_repo_path}")
+        print(f"Ensured inventory branch exists: {inventory_repo}:{inventory_target_branch}")
+
+        return jsonify({
+            'success': True,
+            'message': f'Files created successfully in {service_repo} repo for {dc} on branch {service_branch} and detect-secrets baseline updated',
+            'branch': {
+                'repo': inventory_repo,
+                'source': inventory_source_branch,
+                'target': inventory_target_branch,
+                'created': branch_created
+            },
+            'files': {
+                'deployment': f'https://github.ibm.com/{repo_owner}/{service_repo}/blob/{service_branch}/kubernetes/{deployment_file}',
+                'values': f'https://github.ibm.com/{repo_owner}/{service_repo}/blob/{service_branch}/kubernetes/{values_file}',
+                'baseline': f'https://github.ibm.com/{repo_owner}/{service_repo}/blob/{service_branch}/.secrets.baseline'
+            },
+            'local_repo_path': service_repo_path
+        })
+
     except Exception as e:
         import traceback
         return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()})

@@ -36,7 +36,7 @@
             <p class="step-description">Choose what you want to do with Pipelines</p>
             
             <div class="mode-selection">
-                <button class="mode-card" onclick="selectMode('trigger')">
+                <button class="mode-card" type="button" data-mode="trigger">
                     <i class="fas fa-play-circle"></i>
                     <h3>Trigger Existing Pipeline</h3>
                     <p>Execute an existing CI or CD pipeline</p>
@@ -47,7 +47,7 @@
                     </ul>
                 </button>
                 
-                <button class="mode-card" onclick="selectMode('create')">
+                <button class="mode-card" type="button" data-mode="create">
                     <i class="fas fa-plus-circle"></i>
                     <h3>Create New Trigger</h3>
                     <p>Create a new manual CD trigger for a service</p>
@@ -66,7 +66,7 @@
             <p class="step-description">Choose the type of pipeline you want to trigger</p>
             
             <div class="mode-selection">
-                <button class="mode-card" onclick="selectPipelineType('ci')">
+                <button class="mode-card" type="button" data-pipeline-type="ci">
                     <i class="fas fa-code-branch"></i>
                     <h3>CI Pipeline</h3>
                     <p>Continuous Integration pipeline</p>
@@ -77,7 +77,7 @@
                     </ul>
                 </button>
                 
-                <button class="mode-card" onclick="selectPipelineType('cd')">
+                <button class="mode-card" type="button" data-pipeline-type="cd">
                     <i class="fas fa-rocket"></i>
                     <h3>CD Pipeline</h3>
                     <p>Continuous Deployment pipeline</p>
@@ -88,6 +88,7 @@
                     </ul>
                 </button>
             </div>
+
         </div>
 
         <!-- Step 2: Service Name -->
@@ -105,10 +106,10 @@
             <div id="serviceValidation" class="validation-message"></div>
             
             <div class="wizard-actions">
-                <button class="btn btn-secondary" onclick="previousStep()">
+                <button class="btn btn-secondary" onclick="window.previousStep && window.previousStep()">
                     <i class="fas fa-arrow-left"></i> Back
                 </button>
-                <button class="btn btn-primary" onclick="searchService()">
+                <button class="btn btn-primary" onclick="window.searchService && window.searchService()">
                     Next <i class="fas fa-arrow-right"></i>
                 </button>
             </div>
@@ -124,10 +125,10 @@
             </div>
             
             <div class="wizard-actions">
-                <button class="btn btn-secondary" onclick="previousStep()">
+                <button class="btn btn-secondary" onclick="window.previousStep && window.previousStep()">
                     <i class="fas fa-arrow-left"></i> Back
                 </button>
-                <button class="btn btn-primary" onclick="nextStep()" id="step3NextBtn" disabled>
+                <button class="btn btn-primary" onclick="window.nextStep && window.nextStep()" id="step3NextBtn" disabled>
                     Next <i class="fas fa-arrow-right"></i>
                 </button>
             </div>
@@ -143,10 +144,10 @@
             </div>
             
             <div class="wizard-actions">
-                <button class="btn btn-secondary" onclick="previousStep()">
+                <button class="btn btn-secondary" onclick="window.previousStep && window.previousStep()">
                     <i class="fas fa-arrow-left"></i> Back
                 </button>
-                <button class="btn btn-success" onclick="executeAction()" id="executeBtn">
+                <button class="btn btn-success" onclick="window.executeAction && window.executeAction()" id="executeBtn">
                     <i class="fas fa-rocket"></i> Execute
                 </button>
             </div>
@@ -167,7 +168,7 @@
             <div class="log-viewer">
                 <div class="log-header">
                     <h3>Execution Logs</h3>
-                    <button class="btn btn-sm" onclick="clearLogs()">
+                    <button class="btn btn-sm" onclick="window.clearLogs && window.clearLogs()">
                         <i class="fas fa-trash"></i> Clear
                     </button>
                 </div>
@@ -177,7 +178,7 @@
             </div>
             
             <div class="wizard-actions">
-                <button class="btn btn-secondary" onclick="resetWizard()">
+                <button class="btn btn-secondary" onclick="window.resetWizard && window.resetWizard()">
                     <i class="fas fa-redo"></i> Start Over
                 </button>
                 <button class="btn btn-primary" onclick="window.location.href='/fcp'" style="display:none;" id="doneBtn">
@@ -192,7 +193,7 @@
     <div class="worker-modal-content">
         <div class="worker-modal-header">
             <h3><i class="fas fa-server"></i> Create Private Worker</h3>
-            <button class="worker-modal-close" onclick="closeWorkerModal()">&times;</button>
+            <button class="worker-modal-close" onclick="window.closeWorkerModal && window.closeWorkerModal()">&times;</button>
         </div>
         <div class="worker-modal-body">
             <p class="worker-modal-description">
@@ -205,7 +206,7 @@
                     <label><i class="fas fa-tag"></i> Worker Name</label>
                     <div class="worker-info-value">
                         <input type="text" id="workerName" readonly>
-                        <button class="btn-copy" onclick="copyToClipboard('workerName')">
+                        <button class="btn-copy" onclick="window.copyToClipboard && window.copyToClipboard('workerName')">
                             <i class="fas fa-copy"></i>
                         </button>
                     </div>
@@ -215,7 +216,7 @@
                     <label><i class="fas fa-key"></i> Service ID</label>
                     <div class="worker-info-value">
                         <input type="text" id="serviceId" readonly value="ServiceId-b0303a41-6667-4229-86db-013ae4496b31">
-                        <button class="btn-copy" onclick="copyToClipboard('serviceId')">
+                        <button class="btn-copy" onclick="window.copyToClipboard && window.copyToClipboard('serviceId')">
                             <i class="fas fa-copy"></i>
                         </button>
                     </div>
@@ -225,7 +226,7 @@
                     <label><i class="fas fa-lock"></i> Secrets Manager Secret</label>
                     <div class="worker-info-value">
                         <input type="text" id="smSecret" readonly>
-                        <button class="btn-copy" onclick="copyToClipboard('smSecret')">
+                        <button class="btn-copy" onclick="window.copyToClipboard && window.copyToClipboard('smSecret')">
                             <i class="fas fa-copy"></i>
                         </button>
                     </div>
@@ -235,7 +236,7 @@
                     <label><i class="fas fa-shield-alt"></i> Secrets Manager Reference</label>
                     <div class="worker-info-value">
                         <input type="text" id="smReference" readonly>
-                        <button class="btn-copy" onclick="copyToClipboard('smReference')">
+                        <button class="btn-copy" onclick="window.copyToClipboard && window.copyToClipboard('smReference')">
                             <i class="fas fa-copy"></i>
                         </button>
                     </div>
@@ -257,10 +258,10 @@
             </div>
             
             <div class="worker-modal-footer">
-                <button class="btn btn-secondary" onclick="closeWorkerModal()">
+                <button class="btn btn-secondary" onclick="window.closeWorkerModal && window.closeWorkerModal()">
                     <i class="fas fa-times"></i> Close
                 </button>
-                <button class="btn btn-primary" onclick="openToolchainInBrowser()">
+                <button class="btn btn-primary" onclick="window.openToolchainInBrowser && window.openToolchainInBrowser()">
                     <i class="fas fa-external-link-alt"></i> Open Toolchain
                 </button>
             </div>
@@ -955,5 +956,36 @@
 }
 </style>
 
-<script src="{{ url_for('static', filename='js/fcp-wizard.js') }}?v=8"></script>
+<script>
+window.selectMode = function(mode) {
+    if (typeof selectMode === 'function') {
+        return selectMode(mode);
+    }
+    console.error('selectMode is not available');
+};
+
+window.selectPipelineType = function(type) {
+    if (typeof selectPipelineType === 'function') {
+        return selectPipelineType(type);
+    }
+    console.error('selectPipelineType is not available');
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('[data-mode]').forEach(button => {
+        button.onclick = null;
+        button.addEventListener('click', function() {
+            window.selectMode(this.dataset.mode);
+        });
+    });
+
+    document.querySelectorAll('[data-pipeline-type]').forEach(button => {
+        button.onclick = null;
+        button.addEventListener('click', function() {
+            window.selectPipelineType(this.dataset.pipelineType);
+        });
+    });
+});
+</script>
+<script src="{{ url_for('static', filename='js/fcp-wizard.js') }}?v=10"></script>
 {% endblock %}

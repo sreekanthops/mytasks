@@ -2,10 +2,12 @@
 let currentStep = 1;
 let wizardData = {
     mode: null,
+    createMethod: null,  // 'duplicate' or 'reference'
     pipelineType: null,  // 'ci' or 'cd'
     serviceName: null,
     toolchain: null,
     trigger: null,
+    sourceTrigger: null,  // For duplicate mode
     dcs: [],
     config: {},
     envFilter: 'all',  // all, ngdc, fcp
@@ -15,6 +17,24 @@ let wizardData = {
 // Initialize wizard
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Pipelines Wizard initialized');
+
+    document.querySelectorAll('[data-mode]').forEach(button => {
+        button.addEventListener('click', function() {
+            selectMode(this.dataset.mode);
+        });
+    });
+
+    document.querySelectorAll('[data-pipeline-type]').forEach(button => {
+        button.addEventListener('click', function() {
+            selectPipelineType(this.dataset.pipelineType);
+        });
+    });
+
+    document.querySelectorAll('[data-create-method]').forEach(button => {
+        button.addEventListener('click', function() {
+            selectCreateMethod(this.dataset.createMethod);
+        });
+    });
 });
 
 // Mode selection
@@ -26,8 +46,8 @@ function selectMode(mode) {
         // Show pipeline type selection (step 1.5)
         document.getElementById('step-1').classList.remove('active');
         document.getElementById('step-1-5').classList.add('active');
-    } else {
-        // For 'create' mode, go directly to step 2
+    } else if (mode === 'create') {
+        // For 'create' mode, go directly to step 2 (service name)
         nextStep();
     }
 }
@@ -49,6 +69,22 @@ function selectPipelineType(type) {
 // Navigation functions
 function nextStep() {
     if (currentStep < 5) {
+        // Special handling for duplicate mode at step 3 (after selecting source trigger)
+        if (currentStep === 3 && wizardData.mode === 'create' && wizardData.createMethod === 'duplicate' && wizardData.sourceTrigger) {
+            // Skip step 4 and go directly to step 5 (execution)
+            document.getElementById(`step-${currentStep}`).classList.remove('active');
+            document.querySelector(`.wizard-progress .step[data-step="${currentStep}"]`).classList.add('completed');
+            
+            currentStep = 5;
+            document.getElementById(`step-${currentStep}`).classList.add('active');
+            document.querySelector(`.wizard-progress .step[data-step="4"]`).classList.add('completed');
+            document.querySelector(`.wizard-progress .step[data-step="${currentStep}"]`).classList.add('active');
+            
+            // Start execution
+            executeAction();
+            return;
+        }
+        
         // Hide current step
         document.getElementById(`step-${currentStep}`).classList.remove('active');
         document.querySelector(`.wizard-progress .step[data-step="${currentStep}"]`).classList.add('completed');
@@ -199,8 +235,8 @@ function loadStep3Content() {
         wizardData.toolchain = wizardData.toolchains[0];
         console.log('Selected toolchain:', wizardData.toolchain);
         // Fetch triggers for the auto-selected toolchain
-        if (wizardData.mode === 'trigger') {
-            console.log('Calling selectToolchain(0) for trigger mode');
+        if (wizardData.mode === 'trigger' || (wizardData.mode === 'create' && wizardData.createMethod === 'duplicate')) {
+            console.log('Calling selectToolchain(0) for trigger/duplicate mode');
             selectToolchain(0);
             return;
         }
@@ -278,6 +314,130 @@ function loadStep3Content() {
         html += '<div style="margin-top: 1rem;">';
         html += '<button class="btn btn-secondary" onclick="selectAllDCs()">Select All DCs</button>';
         html += '</div>';
+        
+        // Add create method selection buttons
+        html += '<div style="margin-top: 2rem; padding-top: 2rem; border-top: 2px solid #e0e0e0;">';
+        html += '<h3 style="margin-bottom: 1rem;">Choose Creation Method</h3>';
+        html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">';
+        html += `
+            <button class="btn btn-primary" onclick="selectCreateMethodAfterDC('duplicate')" style="padding: 1rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-copy" style="font-size: 2rem;"></i>
+                <strong>Duplicate from Existing</strong>
+                <small style="opacity: 0.8;">Copy configuration from existing trigger</small>
+            </button>
+            <button class="btn btn-success" onclick="selectCreateMethodAfterDC('reference')" style="padding: 1rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-book" style="font-size: 2rem;"></i>
+                <strong>Take Reference</strong>
+
+// Select create method after DC selection
+async function selectCreateMethodAfterDC(method) {
+    wizardData.createMethod = method;
+    console.log('Create method selected:', method);
+    
+    if (method === 'duplicate') {
+        // For duplicate mode, fetch triggers and show trigger selection
+        addLog('Loading triggers for duplication...');
+        
+        try {
+            const response = await fetch('/api/fcp/get-triggers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    toolchain_guid: wizardData.toolchain.toolchain_guid,
+                    pipeline_type: 'cd'
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success && result.triggers) {
+                wizardData.triggers = result.triggers;
+                wizardData.pipelineType = 'cd';
+                
+                // Show trigger selection in step 3
+                showDuplicateTriggerSelection();
+            } else {
+                addLog('No triggers found', 'error');
+            }
+        } catch (error) {
+            console.error('Error loading triggers:', error);
+            addLog('Error loading triggers', 'error');
+        }
+    } else {
+        // For reference mode, go to next step (configuration)
+        nextStep();
+    }
+}
+
+// Show trigger selection for duplicate mode
+function showDuplicateTriggerSelection() {
+    const content = document.getElementById('selectionContent');
+    const title = document.getElementById('step3Title');
+    const description = document.getElementById('step3Description');
+    
+    title.textContent = 'Select Source Trigger to Duplicate';
+    description.textContent = 'Choose the trigger to copy configuration from';
+    
+    if (!wizardData.triggers || wizardData.triggers.length === 0) {
+        content.innerHTML = '<p class="text-muted">No triggers found</p>';
+        return;
+    }
+    
+    let html = '<div class="selection-grid">';
+    wizardData.triggers.forEach((trigger, index) => {
+        html += `
+            <div class="selection-item" onclick="selectSourceTriggerAndProceed(${index})">
+                <h4>${trigger.name}</h4>
+                <p><small>${trigger.id}</small></p>
+            </div>
+        `;
+    });
+    html += '</div>';
+    content.innerHTML = html;
+}
+
+// Select source trigger and proceed to next step
+async function selectSourceTriggerAndProceed(index) {
+    wizardData.sourceTrigger = wizardData.triggers[index];
+    
+    // Highlight selected
+    document.querySelectorAll('.selection-item').forEach(item => item.classList.remove('selected'));
+    event.target.closest('.selection-item').classList.add('selected');
+    
+    addLog(`Selected source trigger: ${wizardData.sourceTrigger.name}`);
+    
+    // Fetch trigger details to get all properties
+    try {
+        const response = await fetch('/api/fcp/get-trigger-properties', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                toolchain_guid: wizardData.toolchain.toolchain_guid,
+                trigger_id: wizardData.sourceTrigger.id
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success && result.properties) {
+            wizardData.sourceProperties = result.properties;
+            wizardData.sourceGlobalProperties = result.global_properties || {};
+            addLog('Loaded source trigger properties');
+            
+            // Go to next step (execution)
+            nextStep();
+        }
+    } catch (error) {
+        console.error('Error loading source trigger properties:', error);
+        addLog('Error loading trigger properties', 'error');
+    }
+}
+                <small style="opacity: 0.8;">Use template-based creation</small>
+            </button>
+        `;
+        html += '</div>';
+        html += '</div>';
+        
         content.innerHTML = html;
     }
 }
@@ -294,7 +454,7 @@ async function selectToolchain(index) {
     
     addLog(`Selected toolchain: ${wizardData.toolchain.name}`);
     
-    if (wizardData.mode === 'trigger') {
+    if (wizardData.mode === 'trigger' || (wizardData.mode === 'create' && wizardData.createMethod === 'duplicate')) {
         // Load triggers for this toolchain
         addLog(`Loading ${wizardData.pipelineType.toUpperCase()} triggers for ${wizardData.toolchain.name}...`);
         
@@ -318,7 +478,7 @@ async function selectToolchain(index) {
             console.error('Error loading triggers:', error);
         }
     } else if (wizardData.mode === 'create') {
-        // For create mode, reload step 3 to show DC selection
+        // For create mode (reference), reload step 3 to show DC selection
         loadStep3Content();
     }
 }
@@ -453,6 +613,43 @@ function selectTrigger(index) {
     
     // Enable next button
     document.getElementById('step3NextBtn').disabled = false;
+
+// Select source trigger for duplication
+async function selectSourceTrigger(index) {
+    wizardData.sourceTrigger = wizardData.triggers[index];
+    
+    // Highlight selected
+    document.querySelectorAll('.selection-item').forEach(item => item.classList.remove('selected'));
+    event.target.closest('.selection-item').classList.add('selected');
+    
+    addLog(`Selected source trigger: ${wizardData.sourceTrigger.name}`);
+    
+    // Fetch trigger details to get all properties
+    try {
+        const response = await fetch('/api/fcp/get-trigger-properties', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                toolchain_guid: wizardData.toolchain.toolchain_guid,
+                trigger_id: wizardData.sourceTrigger.id
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success && result.properties) {
+            wizardData.sourceProperties = result.properties;
+            wizardData.sourceGlobalProperties = result.global_properties || {};
+            addLog('Loaded source trigger properties');
+            
+            // Enable next button and show DC selection
+            document.getElementById('step3NextBtn').disabled = false;
+        }
+    } catch (error) {
+        console.error('Error loading source trigger properties:', error);
+        addLog('Error loading trigger properties', 'error');
+    }
+}
 }
 
 // Toggle DC selection
@@ -468,8 +665,16 @@ function toggleDC(dcId) {
         item.classList.add('selected');
     }
     
-    // Enable next button if at least one DC selected
-    document.getElementById('step3NextBtn').disabled = wizardData.dcs.length === 0;
+    // Enable next/execute button if at least one DC selected
+    const step3NextBtn = document.getElementById('step3NextBtn');
+    const executeBtn = document.getElementById('executeBtn');
+    
+    if (step3NextBtn) {
+        step3NextBtn.disabled = wizardData.dcs.length === 0;
+    }
+    if (executeBtn && wizardData.mode === 'create' && wizardData.createMethod === 'duplicate') {
+        executeBtn.disabled = wizardData.dcs.length === 0;
+    }
 }
 
 // Select all DCs
@@ -607,6 +812,86 @@ function addCustomDC() {
     // Add to selected DCs
     wizardData.dcs.push(dcCode);
     
+
+// Load Step 4 content for duplicate mode (DC selection)
+function loadStep4DuplicateContent() {
+    const content = document.getElementById('configContent');
+    const title = document.getElementById('step4Title');
+    const description = document.getElementById('step4Description');
+    const executeBtn = document.getElementById('executeBtn');
+    
+    title.textContent = 'Select Data Centers';
+    description.textContent = 'Choose one or more DCs to create duplicated triggers for';
+    
+    const dcs = [
+        { id: 'syd05', name: 'Sydney 05', full: 'syd0501' },
+        { id: 'lon02', name: 'London 02', full: 'lon0201' },
+        { id: 'lon05', name: 'London 05', full: 'lon0501' },
+        { id: 'lon06', name: 'London 06', full: 'lon0601' },
+        { id: 'osa23', name: 'Osaka 23', full: 'osa2301' },
+        { id: 'syd04', name: 'Sydney 04', full: 'syd0401' }
+    ];
+    
+    let html = '<div class="config-section">';
+    html += '<h3>Source Trigger</h3>';
+    html += `
+        <div class="config-item">
+            <span class="config-label">Trigger Name:</span>
+            <span class="config-value">${wizardData.sourceTrigger.name}</span>
+        </div>
+        <div class="config-item">
+            <span class="config-label">Trigger ID:</span>
+            <span class="config-value">${wizardData.sourceTrigger.id}</span>
+        </div>
+    `;
+    html += '</div>';
+    
+    html += '<div class="config-section" style="margin-top: 2rem;">';
+    html += '<h3>Select Target Data Centers</h3>';
+    html += '<div class="selection-grid">';
+    dcs.forEach(dc => {
+        const isSelected = wizardData.dcs.includes(dc.id);
+        html += `
+            <div class="selection-item ${isSelected ? 'selected' : ''}" onclick="toggleDC('${dc.id}')">
+                <h4>${dc.name}</h4>
+                <p>${dc.id}</p>
+                <small>${dc.full}</small>
+            </div>
+        `;
+    });
+    
+    // Add custom DC option
+    html += `
+        <div class="selection-item" onclick="showCustomDCModal()" style="border: 2px dashed #6366f1; background: #f0f9ff;">
+            <h4><i class="fas fa-plus-circle"></i> Add Custom DC</h4>
+            <p>Enter custom DC code</p>
+            <small>e.g., dal10, wdc04</small>
+        </div>
+    `;
+    
+    html += '</div>';
+    
+    // Show selected custom DCs if any
+    if (wizardData.customDCs && wizardData.customDCs.length > 0) {
+        html += '<div style="margin-top: 1rem; padding: 1rem; background: #f0f9ff; border-radius: 8px;">';
+        html += '<strong>Custom DCs:</strong> ';
+        wizardData.customDCs.forEach(dc => {
+            html += `<span style="display: inline-block; margin: 0.25rem; padding: 0.5rem 1rem; background: #6366f1; color: white; border-radius: 6px;">${dc} <i class="fas fa-times" onclick="removeCustomDC('${dc}')" style="cursor: pointer; margin-left: 0.5rem;"></i></span>`;
+        });
+        html += '</div>';
+    }
+    
+    html += '<div style="margin-top: 1rem;">';
+    html += '<button class="btn btn-secondary" onclick="selectAllDCs()">Select All DCs</button>';
+    html += '</div>';
+    html += '</div>';
+    
+    content.innerHTML = html;
+    
+    // Update execute button text and state
+    executeBtn.innerHTML = '<i class="fas fa-copy"></i> Duplicate Triggers';
+    executeBtn.disabled = wizardData.dcs.length === 0;
+}
     // Close modal
     closeCustomDCModal();
     
@@ -1164,6 +1449,10 @@ async function createTriggers() {
     addLog(`Service: ${wizardData.serviceName}`);
     addLog(`Toolchain: ${wizardData.toolchain.name}`);
     addLog(`DCs: ${wizardData.dcs.join(', ')}`);
+    
+    if (wizardData.createMethod === 'duplicate') {
+        addLog(`Mode: Duplicate from ${wizardData.sourceTrigger.name}`);
+    }
     addLog('');
     
     let successCount = 0;
@@ -1173,14 +1462,31 @@ async function createTriggers() {
         addLog(`Processing DC: ${dc}...`);
         
         try {
-            const response = await fetch('/api/fcp/create-trigger', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            let requestBody;
+            
+            if (wizardData.createMethod === 'duplicate') {
+                // Duplicate mode - send source trigger ID and properties
+                requestBody = {
+                    service_name: wizardData.serviceName,
+                    dc: dc,
+                    toolchain_guid: wizardData.toolchain.toolchain_guid,
+                    duplicate_from_trigger_id: wizardData.sourceTrigger.id,
+                    source_properties: wizardData.sourceProperties,
+                    source_global_properties: wizardData.sourceGlobalProperties
+                };
+            } else {
+                // Reference mode - original flow
+                requestBody = {
                     service_name: wizardData.serviceName,
                     dc: dc,
                     toolchain_guid: wizardData.toolchain.toolchain_guid
-                })
+                };
+            }
+            
+            const response = await fetch('/api/fcp/create-trigger', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
             });
             
             const result = await response.json();
@@ -1380,3 +1686,15 @@ window.onclick = function(event) {
         closeWorkerModal();
     }
 }
+
+window.selectMode = selectMode;
+window.selectPipelineType = selectPipelineType;
+window.nextStep = nextStep;
+window.previousStep = previousStep;
+window.resetWizard = resetWizard;
+window.searchService = searchService;
+window.executeAction = executeAction;
+window.clearLogs = clearLogs;
+window.closeWorkerModal = closeWorkerModal;
+window.copyToClipboard = copyToClipboard;
+window.openToolchainInBrowser = openToolchainInBrowser;

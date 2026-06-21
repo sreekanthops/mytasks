@@ -3,6 +3,7 @@ console.log('Voice assistant script loading...');
 let isListening = false;
 let synthesis = window.speechSynthesis;
 let voiceButton = null;
+let recognition = null;
 
 function checkAutoStart() {
     const wasActive = localStorage.getItem('voiceAssistantActive');
