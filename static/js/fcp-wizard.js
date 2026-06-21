@@ -169,6 +169,12 @@ async function searchService() {
         const result = await response.json();
         console.log('Search result:', result);
         
+        // Check if login is needed
+        if (result.needs_login) {
+            showValidation(result.error || 'IBM Cloud authentication required. Please complete login in the terminal and try again.', 'error');
+            return;
+        }
+        
         if (result.success && result.toolchains && result.toolchains.length > 0) {
             wizardData.toolchains = result.toolchains;
             console.log('Toolchains stored:', wizardData.toolchains);

@@ -1219,7 +1219,11 @@ def fcp_get_triggers():
         # Get IAM token
         iam_token = get_iam_token()
         if not iam_token:
-            return jsonify({'success': False, 'error': 'Failed to get IAM token'})
+            return jsonify({
+                'success': False,
+                'error': 'IBM Cloud authentication required. A terminal window has been opened with login commands. Please complete the login and try again.',
+                'needs_login': True
+            })
         
         # Get pipeline ID
         pipeline_id = get_pipeline_id(toolchain_guid, iam_token)
@@ -1669,6 +1673,64 @@ def fcp_pipeline_status():
 # FCP Manager Helper Functions (Python implementation)
 # ============================================================================
 
+def open_terminal_with_login_commands():
+    """Open a new terminal and run IBM Cloud login commands"""
+    try:
+        # Create a script with the login commands
+        login_script = """#!/bin/bash
+echo "=========================================="
+echo "IBM Cloud Authentication Required"
+echo "=========================================="
+echo ""
+echo "Running IBM Cloud login commands..."
+echo ""
+
+# Run the login commands
+ibmcloud login --sso
+ibmcloud cr login
+ibmcloud target -g Default
+
+echo ""
+echo "=========================================="
+echo "Authentication complete!"
+echo "Please return to the application and try again."
+echo "=========================================="
+echo ""
+read -p "Press Enter to close this terminal..."
+"""
+        
+        # Write script to temp file
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
+            f.write(login_script)
+            script_path = f.name
+        
+        # Make script executable
+        os.chmod(script_path, 0o755)
+        
+        # Open terminal based on OS
+        if os.uname().sysname == 'Darwin':  # macOS
+            # Use osascript to open Terminal.app
+            subprocess.Popen([
+                'osascript', '-e',
+                f'tell application "Terminal" to do script "{script_path}"'
+            ])
+        elif os.uname().sysname == 'Linux':
+            # Try common Linux terminals
+            terminals = ['gnome-terminal', 'konsole', 'xterm']
+            for term in terminals:
+                try:
+                    subprocess.Popen([term, '-e', f'bash {script_path}'])
+                    break
+                except FileNotFoundError:
+                    continue
+        
+        print(f"Opened terminal with login script: {script_path}")
+        return True
+    except Exception as e:
+        print(f"Error opening terminal: {e}")
+        return False
+
 def get_iam_token():
     """Get IBM Cloud IAM token"""
     try:
@@ -1681,6 +1743,13 @@ def get_iam_token():
         if result.returncode == 0:
             tokens = json.loads(result.stdout)
             return tokens.get('iam_token', '').replace('Bearer ', '')
+        
+        # If failed, check if it's an authentication issue
+        if 'not logged in' in result.stderr.lower() or 'authentication' in result.stderr.lower():
+            print("IBM Cloud authentication required - opening terminal for login")
+            open_terminal_with_login_commands()
+            return None
+        
         return None
     except Exception as e:
         print(f"Error getting IAM token: {e}")
