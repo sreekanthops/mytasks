@@ -1136,12 +1136,32 @@ def fcp_get_history():
 def fcp_get_dcs():
     """Get list of available DCs"""
     dcs = [
-        {'id': 'syd05', 'name': 'Sydney 05', 'full': 'syd0501'},
+        {'id': 'che01', 'name': 'Chennai 01', 'full': 'che0101'},
+        {'id': 'dal09', 'name': 'Dallas 09', 'full': 'dal0901'},
+        {'id': 'dal14', 'name': 'Dallas 14', 'full': 'dal1401'},
+        {'id': 'fra05', 'name': 'Frankfurt 05', 'full': 'fra0501'},
         {'id': 'lon02', 'name': 'London 02', 'full': 'lon0201'},
+        {'id': 'lon04', 'name': 'London 04', 'full': 'lon0401'},
         {'id': 'lon05', 'name': 'London 05', 'full': 'lon0501'},
         {'id': 'lon06', 'name': 'London 06', 'full': 'lon0601'},
+        {'id': 'mad02', 'name': 'Madrid 02', 'full': 'mad0201'},
+        {'id': 'mad04', 'name': 'Madrid 04', 'full': 'mad0401'},
+        {'id': 'osa21', 'name': 'Osaka 21', 'full': 'osa2101'},
+        {'id': 'osa22', 'name': 'Osaka 22', 'full': 'osa2201'},
         {'id': 'osa23', 'name': 'Osaka 23', 'full': 'osa2301'},
-        {'id': 'syd04', 'name': 'Sydney 04', 'full': 'syd0401'}
+        {'id': 'sao01', 'name': 'Sao Paulo 01', 'full': 'sao0101'},
+        {'id': 'sao04', 'name': 'Sao Paulo 04', 'full': 'sao0401'},
+        {'id': 'sao05', 'name': 'Sao Paulo 05', 'full': 'sao0501'},
+        {'id': 'sjc04', 'name': 'San Jose 04', 'full': 'sjc0401'},
+        {'id': 'sng01', 'name': 'Singapore 01', 'full': 'sng0101'},
+        {'id': 'syd04', 'name': 'Sydney 04', 'full': 'syd0401'},
+        {'id': 'syd05', 'name': 'Sydney 05', 'full': 'syd0501'},
+        {'id': 'tok02', 'name': 'Tokyo 02', 'full': 'tok0201'},
+        {'id': 'tok04', 'name': 'Tokyo 04', 'full': 'tok0401'},
+        {'id': 'tor01', 'name': 'Toronto 01', 'full': 'tor0101'},
+        {'id': 'tor04', 'name': 'Toronto 04', 'full': 'tor0401'},
+        {'id': 'tor05', 'name': 'Toronto 05', 'full': 'tor0501'},
+        {'id': 'wdc04', 'name': 'Washington DC 04', 'full': 'wdc0401'}
     ]
     return jsonify(dcs)
 
