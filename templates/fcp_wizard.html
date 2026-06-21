@@ -987,5 +987,5 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
-<script src="{{ url_for('static', filename='js/fcp-wizard.js') }}?v=10"></script>
+<script src="{{ url_for('static', filename='js/fcp-wizard.js') }}?v=13&t={{ range(1, 999999) | random }}"></script>
 {% endblock %}
